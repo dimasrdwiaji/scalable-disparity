@@ -17,8 +17,9 @@ from .ingest_buildings import (
 from .ingest_context import (
     build_viirs_request_params,
     fetch_viirs_black_marble,
-    fetch_environmental_layers,
+    build_worldpop_request,
     fetch_worldpop,
+    fetch_environmental_layers,
 )
 from .credentials import load_earthdata_token, load_bps_webapi_key
 
@@ -33,8 +34,9 @@ __all__ = [
     "fetch_open_buildings_filtered",
     "build_viirs_request_params",
     "fetch_viirs_black_marble",
-    "fetch_environmental_layers",
+    "build_worldpop_request",
     "fetch_worldpop",
+    "fetch_environmental_layers",
     "load_earthdata_token",
     "load_bps_webapi_key",
 ]
