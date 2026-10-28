@@ -2,6 +2,17 @@
 Data ingestion modules querying cloud-native geospatial data from AWS S3, Copernicus, and Google Earth Engine.
 """
 
+import os
+
+# Ensure PROJ_LIB / PROJ_DATA point to the active Python environment's database rather than conflicting external installs
+try:
+    import pyproj.datadir
+    _proj_dir = pyproj.datadir.get_data_dir()
+    os.environ["PROJ_LIB"] = _proj_dir
+    os.environ["PROJ_DATA"] = _proj_dir
+except Exception:
+    pass
+
 from .ingest_overture import (
     build_overture_amenities_query,
     build_overture_transportation_query,
@@ -9,6 +20,7 @@ from .ingest_overture import (
     fetch_overture_transportation,
 )
 from .ingest_buildings import (
+    build_open_buildings_query,
     filter_by_confidence,
     derive_floor_count,
     intersect_residential_mask,
@@ -29,13 +41,14 @@ from .ingest_context import (
     fetch_openmeteo_air_quality,
     fetch_environmental_layers,
 )
-from .credentials import load_earthdata_token, load_bps_webapi_key
+from .credentials import load_earthdata_token
 
 __all__ = [
     "build_overture_amenities_query",
     "build_overture_transportation_query",
     "fetch_overture_amenities",
     "fetch_overture_transportation",
+    "build_open_buildings_query",
     "filter_by_confidence",
     "derive_floor_count",
     "intersect_residential_mask",
@@ -54,5 +67,4 @@ __all__ = [
     "fetch_openmeteo_air_quality",
     "fetch_environmental_layers",
     "load_earthdata_token",
-    "load_bps_webapi_key",
 ]

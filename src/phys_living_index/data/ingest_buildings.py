@@ -8,7 +8,35 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import box
-import duckdb
+import rasterio
+
+from .ingest_overture import get_duckdb_spatial_connection
+
+DEFAULT_OPEN_BUILDINGS_SOURCE_URL = (
+    "https://data.source.coop/vida/google-microsoft-open-buildings/geoparquet/by_country_s2/country_iso=IDN/*"
+)
+
+
+def build_open_buildings_query(
+    bbox: Tuple[float, float, float, float],
+    min_confidence: float = 0.65,
+    source_url: str = DEFAULT_OPEN_BUILDINGS_SOURCE_URL,
+) -> str:
+    """
+    Pure query-builder constructing DuckDB SQL to fetch Open Buildings within bbox and confidence threshold.
+    """
+    min_lon, min_lat, max_lon, max_lat = bbox
+    return f"""
+    SELECT 
+        id, 
+        height, 
+        confidence, 
+        ST_AsText(geometry) AS wkt_geom
+    FROM read_parquet('{source_url}')
+    WHERE bbox.xmin >= {min_lon} AND bbox.xmax <= {max_lon}
+      AND bbox.ymin >= {min_lat} AND bbox.ymax <= {max_lat}
+      AND confidence >= {min_confidence}
+    """
 
 
 def filter_by_confidence(gdf: gpd.GeoDataFrame, min_confidence: float = 0.65) -> gpd.GeoDataFrame:
@@ -40,18 +68,31 @@ def intersect_residential_mask(
 ) -> gpd.GeoDataFrame:
     """
     Pure spatial intersection keeping only footprints overlapping the residential mask.
+    Supports vector GeoDataFrames/files and raster GeoTIFF masks (e.g. EC JRC GHS-BUILT-C).
     """
-    if residential_mask is None:
+    if residential_mask is None or buildings_gdf.empty:
         return buildings_gdf
 
+    # Handle raster mask path (GeoTIFF)
     if isinstance(residential_mask, (str, Path)):
         mask_path = Path(residential_mask)
         if not mask_path.exists():
             return buildings_gdf
-        if mask_path.suffix in [".parquet", ".geoparquet", ".geojson", ".gpkg", ".shp"]:
+
+        if mask_path.suffix.lower() in [".tif", ".tiff"]:
+            with rasterio.open(mask_path) as src:
+                # Sample raster values at building centroids
+                centroids = buildings_gdf.geometry.centroid
+                coords = [(c.x, c.y) for c in centroids]
+                sampled = list(src.sample(coords))
+                values = np.array([s[0] for s in sampled])
+                # GHS-BUILT-C residential class is typically > 0 (e.g., class 1 or density > 0)
+                is_residential = values > 0
+                return buildings_gdf[is_residential].copy()
+
+        if mask_path.suffix.lower() in [".parquet", ".geoparquet", ".geojson", ".gpkg", ".shp"]:
             mask_gdf = gpd.read_file(mask_path)
         else:
-            # If raster or other, spatial join requires polygonization
             return buildings_gdf
     else:
         mask_gdf = residential_mask
@@ -69,6 +110,7 @@ def fetch_open_buildings_filtered(
     ghs_residential_mask: Optional[Union[gpd.GeoDataFrame, Path, str]] = None,
     min_confidence: float = 0.65,
     floor_height: float = 3.0,
+    source_url: str = DEFAULT_OPEN_BUILDINGS_SOURCE_URL,
 ) -> Path:
     """
     Downloads Google Open Buildings v3 footprints for the bbox via Source Cooperative / DuckDB,
@@ -77,37 +119,24 @@ def fetch_open_buildings_filtered(
     """
     output_parquet = Path(output_parquet)
     output_parquet.parent.mkdir(parents=True, exist_ok=True)
-    min_lon, min_lat, max_lon, max_lat = bbox
 
-    # Connect to DuckDB with spatial
-    con = duckdb.connect()
-    con.execute("INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;")
-    
-    # Query Source Cooperative / open buildings distribution for Indonesia (IDN)
-    source_url = "https://data.source.coop/vida/google-microsoft-open-buildings/geoparquet/by_country_s2/country_iso=IDN/*"
-    
-    query = f"""
-    SELECT 
-        id, 
-        height, 
-        confidence, 
-        ST_AsText(geometry) AS wkt_geom
-    FROM read_parquet('{source_url}')
-    WHERE bbox.xmin >= {min_lon} AND bbox.xmax <= {max_lon}
-      AND bbox.ymin >= {min_lat} AND bbox.ymax <= {max_lat}
-      AND confidence >= {min_confidence}
-    """
+    # Pure query building
+    query = build_open_buildings_query(bbox=bbox, min_confidence=min_confidence, source_url=source_url)
+
+    # Connect to DuckDB reusing spatial connection helper
+    con = get_duckdb_spatial_connection()
     try:
         df = con.execute(query).df()
     except Exception:
-        # Fallback to local or sample generator if remote query is unavailable
+        # Fallback to empty dataframe if remote table unavailable in offline context
         df = pd.DataFrame(columns=["id", "height", "confidence", "wkt_geom"])
-    con.close()
+    finally:
+        con.close()
 
     if df.empty:
         # Create empty GeoDataFrame with required schema
         gdf = gpd.GeoDataFrame(
-            columns=["id", "height", "confidence", "floor_count", "geometry"],
+            columns=["id", "geometry", "height", "confidence", "floor_count"],
             crs="EPSG:4326",
         )
     else:
@@ -126,5 +155,10 @@ def fetch_open_buildings_filtered(
             gdf[c] = None
     gdf = gdf[cols]
 
+    # Validate geometries on output if present
+    if not gdf.empty:
+        assert gdf.geometry.is_valid.all(), "Building geometries contain invalid shapes"
+
     gdf.to_parquet(output_parquet)
+    assert output_parquet.exists() and output_parquet.stat().st_size > 0, "Output file was not created properly"
     return output_parquet

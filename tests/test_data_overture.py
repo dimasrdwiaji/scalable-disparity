@@ -56,4 +56,4 @@ def test_live_overture_amenities_small_sub_bbox(tmp_path):
     con = duckdb.connect()
     count = con.execute(f"SELECT COUNT(*) FROM read_parquet('{result_path.as_posix()}')").fetchone()[0]
     con.close()
-    assert count >= 0  # valid execution without error
+    assert count > 0  # valid execution with nonzero rows

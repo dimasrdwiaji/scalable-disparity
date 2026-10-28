@@ -3,14 +3,28 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import box, Polygon, Point
+import rasterio
 import pytest
 
 from phys_living_index.data.ingest_buildings import (
+    build_open_buildings_query,
     filter_by_confidence,
     derive_floor_count,
     intersect_residential_mask,
     fetch_open_buildings_filtered,
 )
+
+
+def test_build_open_buildings_query():
+    bbox = (106.8, -6.2, 106.9, -6.1)
+    query = build_open_buildings_query(bbox=bbox, min_confidence=0.70)
+    assert isinstance(query, str)
+    assert "bbox.xmin >= 106.8" in query
+    assert "bbox.ymin >= -6.2" in query
+    assert "bbox.xmax <= 106.9" in query
+    assert "bbox.ymax <= -6.1" in query
+    assert "confidence >= 0.7" in query
+    assert "ST_AsText(geometry)" in query
 
 
 def test_filter_by_confidence():
@@ -55,6 +69,30 @@ def test_intersect_residential_mask():
     masked = intersect_residential_mask(buildings, res_mask)
     assert len(masked) == 1
     assert masked.iloc[0]["id"] == "res_bldg"
+
+
+def test_intersect_residential_raster_mask(tmp_path):
+    # Test GeoTIFF raster mask handling
+    mask_tif = tmp_path / "ghs_built_c.tif"
+    transform = rasterio.transform.from_bounds(0.0, 0.0, 2.0, 2.0, 2, 2)
+    # 2x2 grid: upper-left is 1 (residential), rest is 0 (non-residential)
+    # Note: in raster coords, row 0 is top (lat 1-2), row 1 is bottom (lat 0-1)
+    data = np.array([[1, 0], [0, 0]], dtype=np.uint8)
+    with rasterio.open(
+        mask_tif, "w", driver="GTiff", height=2, width=2, count=1, dtype="uint8", crs="EPSG:4326", transform=transform
+    ) as dst:
+        dst.write(data, 1)
+
+    b1 = box(0.1, 1.1, 0.5, 1.5)  # in residential pixel (0.0-1.0, 1.0-2.0)
+    b2 = box(1.1, 0.1, 1.5, 0.5)  # in non-residential pixel
+    buildings = gpd.GeoDataFrame(
+        {"id": ["b1", "b2"], "height": [3.0, 6.0]},
+        geometry=[b1, b2],
+        crs="EPSG:4326",
+    )
+    masked = intersect_residential_mask(buildings, mask_tif)
+    assert len(masked) == 1
+    assert masked.iloc[0]["id"] == "b1"
 
 
 @pytest.mark.integration
