@@ -28,8 +28,11 @@ def compute_gini_coefficient(values: np.ndarray, weights: np.ndarray = None) -> 
     relative_pop = cumulative_weights / total_weight
     relative_wealth = cumulative_wealth / total_wealth
     
-    # Area under the Lorenz curve
-    lorenz_area = np.trapz(relative_wealth, relative_pop)
+    # Area under the Lorenz curve (trapezoidal integration)
+    if hasattr(np, "trapezoid"):
+        lorenz_area = np.trapezoid(relative_wealth, relative_pop)
+    else:
+        lorenz_area = np.trapz(relative_wealth, relative_pop)
     gini = 1.0 - 2.0 * lorenz_area
     return float(np.clip(gini, 0.0, 1.0))
 
