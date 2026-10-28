@@ -24,6 +24,7 @@ dependencies = [
     "pyyaml>=6.0",
     "tqdm>=4.66.0",
     "matplotlib>=3.8.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -48,3 +49,7 @@ target-version = "py311"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = [
+    "integration: marks tests as live integration tests requiring network (skipped by default)",
+]
+addopts = "-m 'not integration'"
