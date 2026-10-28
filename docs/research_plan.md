@@ -221,4 +221,4 @@ $$\text{BPS Poverty Rate}_k = \beta_0 + \beta_1 \cdot \overline{\text{PLSI}}_k +
 
 ### Empirical Validation Strategy
 * **Spatial Alignment Verification**: Inspect the segregation friction map in QGIS / Kepler.gl over known border areas (e.g., the boundary wall between BSD City and Kampung Sampora) to confirm that the GNN reconstruction error spikes precisely along physical barriers.
-* **BPS SUSENAS Benchmark**: Regress the aggregated municipal Physical Living Standard Index against official BPS poverty rates across 25+ *Kabupaten/Kota*, confirming Pearson $r \ge 0.65$ ($p < 0.001$).
+* **BPS SUSENAS Benchmark**: Regress the aggregated municipal Physical Living Standard Index against official BPS poverty rates across the ~15 *Kabupaten/Kota* in the Jabodetabek + Karawang study area (the 14 Jabodetabek administrative units plus Karawang Regency), confirming Pearson $r \ge 0.65$ ($p < 0.001$). (Corrected from an earlier "25+" figure that didn't reconcile with any coherent Jabodetabek-branded area; see `.scratch/project-roadmap/map.md`.)

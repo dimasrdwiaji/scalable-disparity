@@ -3,11 +3,15 @@
 project:
   name: "phys-living-index"
   version: "0.1.0"
-  study_area: "jabodetabek"
+  study_area: "jabodetabek_karawang"
 
 spatial:
-  # Greater Jakarta (Jabodetabek) Bounding Box: [min_lon, min_lat, max_lon, max_lat]
-  bbox: [106.35, -6.75, 107.25, -5.95]
+  # Greater Jakarta (Jabodetabek) + Karawang Regency Bounding Box: [min_lon, min_lat, max_lon, max_lat]
+  # Eastward extension to 107.65 added to capture Karawang's industrial-labor-housing vs.
+  # agrarian-hinterland disparity archetype. Karawang's eastern extent here is an estimate from
+  # regency boundary points, not a verified admin polygon -- confirm against an authoritative
+  # boundary (OSM relation or BPS) during Stage 2 ingestion before treating it as final.
+  bbox: [106.35, -6.75, 107.65, -5.95]
   h3_resolution: 8 # ~0.737 km², edge length ~461m
   isochrone:
     network_mode: "walk"
