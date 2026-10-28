@@ -14,7 +14,13 @@ from .ingest_buildings import (
     intersect_residential_mask,
     fetch_open_buildings_filtered,
 )
-from .ingest_context import fetch_environmental_layers, fetch_worldpop
+from .ingest_context import (
+    build_viirs_request_params,
+    fetch_viirs_black_marble,
+    fetch_environmental_layers,
+    fetch_worldpop,
+)
+from .credentials import load_earthdata_token, load_bps_webapi_key
 
 __all__ = [
     "build_overture_amenities_query",
@@ -25,6 +31,10 @@ __all__ = [
     "derive_floor_count",
     "intersect_residential_mask",
     "fetch_open_buildings_filtered",
+    "build_viirs_request_params",
+    "fetch_viirs_black_marble",
     "fetch_environmental_layers",
     "fetch_worldpop",
+    "load_earthdata_token",
+    "load_bps_webapi_key",
 ]
