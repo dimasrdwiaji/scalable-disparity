@@ -23,6 +23,10 @@ from .ingest_context import (
     compute_ndvi,
     extract_landsat_lst,
     fetch_planetary_computer_layers,
+    OPENMETEO_AIR_QUALITY_VARIABLES,
+    generate_sampling_grid,
+    batch_locations,
+    fetch_openmeteo_air_quality,
     fetch_environmental_layers,
 )
 from .credentials import load_earthdata_token, load_bps_webapi_key
@@ -44,6 +48,10 @@ __all__ = [
     "compute_ndvi",
     "extract_landsat_lst",
     "fetch_planetary_computer_layers",
+    "OPENMETEO_AIR_QUALITY_VARIABLES",
+    "generate_sampling_grid",
+    "batch_locations",
+    "fetch_openmeteo_air_quality",
     "fetch_environmental_layers",
     "load_earthdata_token",
     "load_bps_webapi_key",
