@@ -19,6 +19,10 @@ from .ingest_context import (
     fetch_viirs_black_marble,
     build_worldpop_request,
     fetch_worldpop,
+    build_planetary_computer_stac_query,
+    compute_ndvi,
+    extract_landsat_lst,
+    fetch_planetary_computer_layers,
     fetch_environmental_layers,
 )
 from .credentials import load_earthdata_token, load_bps_webapi_key
@@ -36,6 +40,10 @@ __all__ = [
     "fetch_viirs_black_marble",
     "build_worldpop_request",
     "fetch_worldpop",
+    "build_planetary_computer_stac_query",
+    "compute_ndvi",
+    "extract_landsat_lst",
+    "fetch_planetary_computer_layers",
     "fetch_environmental_layers",
     "load_earthdata_token",
     "load_bps_webapi_key",
