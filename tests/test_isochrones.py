@@ -6,11 +6,27 @@ from shapely.geometry import Point
 
 from phys_living_index.features.isochrones import (
     build_network_adjacency_matrix,
+    calculate_pedestrian_cutoff_meters,
     compute_amenity_accessibility,
     compute_batched_dijkstra_distances,
     count_reachable_amenities,
     snap_coordinates_to_nodes,
 )
+
+
+def test_calculate_pedestrian_cutoff_meters():
+    # 15 minutes at 4.0 km/h: (4000 / 60) * 15 = 1000m
+    cutoff_4kmh = calculate_pedestrian_cutoff_meters(walking_time_min=15.0, walking_speed_kmh=4.0)
+    assert cutoff_4kmh == pytest.approx(1000.0)
+
+    # 15 minutes at 4.8 km/h: (4800 / 60) * 15 = 1200m
+    cutoff_fast = calculate_pedestrian_cutoff_meters(walking_time_min=15.0, walking_speed_kmh=4.8)
+    assert cutoff_fast == pytest.approx(1200.0)
+
+    # 10 minutes at 3.0 km/h: (3000 / 60) * 10 = 500m
+    cutoff_slow = calculate_pedestrian_cutoff_meters(walking_time_min=10.0, walking_speed_kmh=3.0)
+    assert cutoff_slow == pytest.approx(500.0)
+
 
 
 def test_snap_coordinates_to_nodes():

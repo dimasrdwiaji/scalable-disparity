@@ -146,12 +146,43 @@ def count_reachable_amenities(
     return np.sum(reachable_mask, axis=1, dtype=np.int64)
 
 
+def calculate_pedestrian_cutoff_meters(
+    walking_time_min: float = 15.0,
+    walking_speed_kmh: float = 4.0,
+) -> float:
+    """
+    Computes pedestrian network distance cutoff in meters.
+
+    Formula:
+        cutoff = (walking_speed_kmh * 1000 / 60) * walking_time_min
+
+    Parameters
+    ----------
+    walking_time_min : float, default 15.0
+        Walk duration threshold in minutes.
+    walking_speed_kmh : float, default 4.0
+        Average pedestrian travel speed in km/h. Standard baseline:
+        - 4.0 km/h (~1.11 m/s) accounts for pedestrian crossing delays,
+          congested urban sidewalks, and tropical climatic conditions.
+        - 4.8 km/h (~1.33 m/s) represents brisk uninterrupted walking.
+
+    Returns
+    -------
+    float
+        Distance threshold in meters (e.g. 1000.0 m for 15 min at 4.0 km/h).
+    """
+    speed_meters_per_minute = (walking_speed_kmh * 1000.0) / 60.0
+    return float(speed_meters_per_minute * walking_time_min)
+
+
 def compute_amenity_accessibility(
     hex_gdf: gpd.GeoDataFrame,
     poi_gdf: gpd.GeoDataFrame,
     nodes_df: pd.DataFrame,
     edges_df: pd.DataFrame,
-    cutoff_meters: float = 1000.0,
+    cutoff_meters: float | None = None,
+    walking_time_min: float = 15.0,
+    walking_speed_kmh: float = 4.0,
 ) -> pd.Series:
     """
     Full coordination function for pedestrian accessibility from H3 cells to POIs.
@@ -166,14 +197,25 @@ def compute_amenity_accessibility(
         Network graph nodes with 'x' and 'y'.
     edges_df : pd.DataFrame
         Network graph edges with 'u', 'v', 'length_m'.
-    cutoff_meters : float, default 1000.0
-        Pedestrian catchment distance cutoff.
+    cutoff_meters : float | None, optional
+        Pedestrian catchment distance cutoff in meters. If None, derived
+        from walking_time_min and walking_speed_kmh.
+    walking_time_min : float, default 15.0
+        Walking time duration in minutes.
+    walking_speed_kmh : float, default 4.0
+        Walking speed in km/h.
 
     Returns
     -------
     pd.Series
         Reachable POI count indexed by 'h3_index'.
     """
+    if cutoff_meters is None:
+        cutoff_meters = calculate_pedestrian_cutoff_meters(
+            walking_time_min=walking_time_min,
+            walking_speed_kmh=walking_speed_kmh,
+        )
+
     num_nodes = len(nodes_df)
     adj_matrix = build_network_adjacency_matrix(num_nodes, edges_df, undirected=True)
 
