@@ -2,7 +2,6 @@
 Population-weighted zonal aggregation into BPS administrative units and econometric audit against SUSENAS poverty rates.
 """
 
-from typing import Dict, Any
 import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr
@@ -34,7 +33,7 @@ def zonal_aggregate_bps(
 def audit_bps_poverty_correlation(
     aggregated_bps_df: pd.DataFrame,
     bps_poverty_rate_col: str = "poverty_rate_pct",
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Audits the aggregated physical index against official BPS SUSENAS poverty statistics:
     Poverty_Rate_k = beta_0 + beta_1 * Mean_PLSI_k + epsilon

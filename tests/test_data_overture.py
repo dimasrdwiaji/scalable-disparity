@@ -1,10 +1,11 @@
 from pathlib import Path
+
 import pytest
+
 from phys_living_index.data.ingest_overture import (
     build_overture_amenities_query,
     build_overture_transportation_query,
     fetch_overture_amenities,
-    fetch_overture_transportation,
 )
 
 

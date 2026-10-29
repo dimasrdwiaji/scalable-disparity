@@ -1,8 +1,12 @@
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
+
+from phys_living_index.analysis.disparity_metrics import (
+    compute_gini_coefficient,
+    compute_palma_ratio,
+)
 from phys_living_index.features.build_features import normalize_feature_matrix
-from phys_living_index.analysis.disparity_metrics import compute_gini_coefficient, compute_palma_ratio
 
 
 def test_normalize_feature_matrix_bounds():
@@ -26,7 +30,7 @@ def test_gini_coefficient_edge_cases():
     # Perfect equality
     equal_vals = np.ones(100)
     assert compute_gini_coefficient(equal_vals) == pytest.approx(0.0, abs=1e-3)
-    
+
     # Skewed distribution
     unequal_vals = np.zeros(100)
     unequal_vals[-1] = 1000.0

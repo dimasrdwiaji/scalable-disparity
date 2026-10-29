@@ -1,6 +1,6 @@
 # ADR 0001: Unsupervised Graph Attention Autoencoder on Geometric H3 Adjacency for Spatial Disparity Mapping
 
-* **Status**: Accepted
+* **Status**: Accepted (Amended October 2026)
 * **Date**: October 2026
 * **Deciders**: Dimas RD
 
@@ -32,7 +32,7 @@ Chosen option: **Option 3: GAT-AE on Pure Geometric H3 Adjacency**.
 1. **Reversing the GNN Over-Smoothing Dilemma**:
    Standard Graph Neural Networks smooth representations across neighbors. By retaining *pure geometric H3 adjacency* across physical boundaries (walls, rivers) and enforcing a strict bottleneck ($d=2$), the autoencoder is forced to learn a low-dimensional manifold expecting spatial continuity.
 2. **Reconstruction Loss as Segregation Friction**:
-   When an affluent enclave and an informal kampung share an H3 boundary, their 6-dimensional feature vector exhibits a step-function jump. The decoder fails to reconstruct this abrupt discontinuity, causing the reconstruction error ($\|X - \hat{X}\|^2$) to spike precisely along the segregation wall.
+   When an affluent enclave and an informal kampung share an H3 boundary, their feature vector exhibits a step-function jump. The decoder fails to reconstruct this abrupt discontinuity, causing the reconstruction error ($\|X - \hat{X}\|^2$) to spike precisely along the segregation wall.
 3. **Dual Boundary Corroboration**:
    Extracting the GAT layer's learned attention coefficients ($\alpha_{ij}$) provides edge-level corroboration: where $\alpha_{ij} \to 0$, the network explicitly detects dissimilar neighbors.
 
@@ -45,3 +45,18 @@ Chosen option: **Option 3: GAT-AE on Pure Geometric H3 Adjacency**.
 * **Negative**:
   - Requires careful normalization (Universal Min-Max to $[0, 1]$) to prevent high-magnitude features from dominating the reconstruction error.
   - Requires bottleneck latent space ($d \le 2$) to prevent trivial identity mapping shortcuts.
+
+---
+
+## Amendment (October 2026): 10-Dimensional Feature Expansion & Global Standards
+
+1. **Feature Vector Expansion from 6D to 10D**:
+   To capture the multidimensional nature of living standard disparity without collinear redundancy:
+   - Added Built-up Roof Density ($\text{NDBI}$) to differentiate informal corrugated metal/asbestos roof texture from planned concrete roofing.
+   - Added Bare Soil & Unpaved Infrastructure ($\text{BSI}$) to measure missing civic street paving in peri-urban zones.
+   - Added Surface Water & Flood Vulnerability ($\text{MNDWI}$) to capture open wastewater drainage and low-elevation flood accumulation.
+   - Added Multi-Pollutant Air Purity ($\text{AQI}_{\text{inv}}$) using official European/US AQI regulatory standards, supplementing fine particulate exposure ($\text{PM}_{2.5}$).
+2. **Preservation of Authentic Units in Ingestion**:
+   Raw raster and vector data in `ingest_context.py` remain in their canonical scientific units (spectral indices in $[-1.0, 1.0]$, LST in Kelvin, pollutants in $\mu\text{g/m}^3$ and AQI points). Scaling to $[0, 1]$ occurs exclusively in `build_features.py` during Stage 3.
+3. **Global Floor-Count Derivation**:
+   Building floor heights are grounded in international benchmarks (**EC JRC GHSL**; Biljecki & Chow, 2022) with $3.0\text{ m}$ for residential and $3.6\text{ m}$ for commercial structures, ensuring international portability.
