@@ -1,7 +1,7 @@
 """
 Harmonizes and standardizes physical living standard features onto Uber H3 Resolution 8 cells (~0.74 km²).
 
-This module prepares the continuous multi-dimensional feature matrix X in R^(N x D)
+This module prepares the continuous multi-dimensional feature matrix X in R^(N x 10)
 for the Graph Attention Autoencoder (GAT-AE).
 
 It implements:
@@ -9,7 +9,9 @@ It implements:
    nW/cm²/sr, μg/m³, spectral indices) into a standardized [0.0, 1.0] interval.
 2. Inverted Hazard Scaling: Transforms environmental stress metrics (heat, air pollution)
    so that higher values uniformly signify better living standards across all feature channels.
-3. 10-Dimensional Feature Matrix Assembly: Incorporates living space sufficiency, built-up
+3. 99th Percentile (P99) Winsorization: Mitigates denominator artifacts in commercial CBDs
+   where near-zero resident populations produce false astronomical per-capita living space.
+4. 10-Dimensional Feature Matrix Assembly: Incorporates living space sufficiency, built-up
    density, pedestrian accessibility, infrastructure paving, nighttime light, vegetative canopy,
    thermal comfort, drainage exposure, fine particulates, and multi-pollutant air quality.
 """
@@ -19,6 +21,20 @@ from typing import Any
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+
+# The 10 canonical feature channels for the Physical Living Standard Index (PLSI)
+FEATURE_DIMENSIONS_10D: list[str] = [
+    "space_sufficiency_ratio",    # 1. Living Space Ratio
+    "builtup_ndbi",               # 2. Built-up Density (NDBI)
+    "cumulative_amenities_15m",   # 3. 15-Minute Walking Opportunities
+    "bare_soil_bsi",              # 4. Bare Soil / Dirt Roads (BSI)
+    "nighttime_energy_radiance",  # 5. Economic Radiance per Capita
+    "vegetation_ndvi",            # 6. Environmental Canopy (NDVI)
+    "thermal_comfort_lst_inv",    # 7. Inverted Thermal Comfort (LST)
+    "water_mndwi",                # 8. Drainage / Water Exposure (MNDWI)
+    "air_purity_pm25_inv",        # 9. Inverted Fine Particulates (PM2.5)
+    "multi_pollutant_aqi_inv",    # 10. Inverted Multi-Pollutant AQI
+]
 
 # Default international benchmark ranges for universal Min-Max scaling to [0.0, 1.0]
 DEFAULT_10D_BENCHMARKS: dict[str, tuple[float, float]] = {
@@ -44,12 +60,43 @@ DEFAULT_10D_BENCHMARKS: dict[str, tuple[float, float]] = {
     "multi_pollutant_aqi_inv": (0.0, 300.0),
 }
 
+# Features where higher raw values indicate environmental hazard/heat/pollution and must be inverted
+INVERTED_HAZARD_CHANNELS: set[str] = {
+    "thermal_comfort_lst_inv",
+    "air_purity_pm25_inv",
+    "multi_pollutant_aqi_inv",
+}
+
+
+def winsorize_series(
+    series: pd.Series,
+    percentile: float = 99.0,
+) -> pd.Series:
+    """
+    Clips extreme positive outliers in a Pandas Series at the specified percentile.
+
+    Parameters
+    ----------
+    series : pd.Series
+        Input numerical series.
+    percentile : float, default 99.0
+        Upper percentile cut-off threshold (0-100).
+
+    Returns
+    -------
+    pd.Series
+        Winsorized series with values > cutoff capped to the cutoff value.
+    """
+    cutoff = float(np.percentile(series.dropna(), percentile))
+    return series.clip(upper=cutoff)
+
 
 def compute_living_space_ratio(
     buildings_df: gpd.GeoDataFrame,
     worldpop_series: pd.Series,
     min_standard_m2: float = 9.0,
     floor_height_m: float = 3.0,
+    winsorize_p99: bool = True,
 ) -> pd.Series:
     """
     Computes the Living Space Ratio (R_space) per H3 hexagonal cell.
@@ -72,6 +119,8 @@ def compute_living_space_ratio(
         UN-Habitat minimum floor area standard in m² (default 9.0 m²).
     floor_height_m : float, optional
         International nominal floor-to-floor height (default 3.0 m).
+    winsorize_p99 : bool, default True
+        Whether to apply P99 winsorization to remove CBD denominator artifacts.
 
     Returns
     -------
@@ -87,7 +136,40 @@ def compute_living_space_ratio(
     h3_floor_area = buildings_df.groupby("h3_index")["floor_area"].sum()
     pop = np.maximum(worldpop_series, 1.0)
     living_space_per_capita = h3_floor_area / pop
+
+    if winsorize_p99 and len(living_space_per_capita) > 1:
+        living_space_per_capita = winsorize_series(living_space_per_capita, percentile=99.0)
+
     return living_space_per_capita / min_standard_m2
+
+
+def compute_economic_energy_radiance(
+    viirs_series: pd.Series,
+    worldpop_series: pd.Series,
+    winsorize_p99: bool = True,
+) -> pd.Series:
+    """
+    Computes nighttime radiance per capita with P99 winsorization.
+
+    Parameters
+    ----------
+    viirs_series : pd.Series
+        Mean VIIRS radiance per H3 cell.
+    worldpop_series : pd.Series
+        Population per H3 cell.
+    winsorize_p99 : bool, default True
+        Whether to winsorize at 99th percentile.
+
+    Returns
+    -------
+    pd.Series
+        Radiance per capita.
+    """
+    pop = np.maximum(worldpop_series, 1.0)
+    per_capita = viirs_series / pop
+    if winsorize_p99 and len(per_capita) > 1:
+        per_capita = winsorize_series(per_capita, percentile=99.0)
+    return per_capita
 
 
 def normalize_feature_matrix(
@@ -100,10 +182,8 @@ def normalize_feature_matrix(
 
     Aligning all features onto a universal [0.0, 1.0] scale is critical for the
     Graph Attention Autoencoder (GAT-AE):
-    - Prevents high-magnitude indicators (e.g. LST ~305 K or building areas) from
-      dominating the mean squared reconstruction error over bounded indicators (e.g. NDVI ~0.3).
-    - Preserves absolute, international comparability across metropolitan regions
-      without relying on relative within-sample z-scores.
+    - Prevents high-magnitude indicators from dominating the mean squared reconstruction error.
+    - Preserves absolute, international comparability across metropolitan regions.
 
     Parameters
     ----------
@@ -113,7 +193,7 @@ def normalize_feature_matrix(
         List of column names to extract and normalize.
     benchmarks : dict[str, tuple[float, float]] | None, optional
         Dictionary mapping column names to (min_benchmark, max_benchmark).
-        If None, uses DEFAULT_10D_BENCHMARKS, falling back to observed min/max.
+        If None, uses DEFAULT_10D_BENCHMARKS.
 
     Returns
     -------
@@ -126,9 +206,41 @@ def normalize_feature_matrix(
     normalized = np.zeros((len(df), len(feature_cols)), dtype=np.float32)
     for idx, col in enumerate(feature_cols):
         min_val, max_val = benchmarks.get(col, (float(df[col].min()), float(df[col].max())))
-        val = np.clip(df[col].values, min_val, max_val)
-        normalized[:, idx] = (val - min_val) / (max_val - min_val + 1e-8)
+        val = np.clip(df[col].to_numpy(dtype=np.float32), min_val, max_val)
+        norm_val = (val - min_val) / (max_val - min_val + 1e-8)
+
+        # Invert hazard channels so higher is always better
+        if col in INVERTED_HAZARD_CHANNELS:
+            norm_val = 1.0 - norm_val
+
+        normalized[:, idx] = norm_val
     return normalized
+
+
+def build_10d_feature_matrix(
+    raw_features_df: pd.DataFrame,
+    benchmarks: dict[str, tuple[float, float]] | None = None,
+) -> np.ndarray:
+    """
+    Standardizes and packages the 10 canonical living standard indicators into matrix X.
+
+    Parameters
+    ----------
+    raw_features_df : pd.DataFrame
+        DataFrame containing all 10 canonical feature columns indexed by H3 ID.
+    benchmarks : dict[str, tuple[float, float]] | None, optional
+        Custom benchmark mapping.
+
+    Returns
+    -------
+    np.ndarray
+        Normalized feature matrix X of shape (N, 10) in [0.0, 1.0].
+    """
+    return normalize_feature_matrix(
+        raw_features_df,
+        feature_cols=FEATURE_DIMENSIONS_10D,
+        benchmarks=benchmarks,
+    )
 
 
 def assemble_h3_features(
