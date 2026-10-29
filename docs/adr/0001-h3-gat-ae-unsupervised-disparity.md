@@ -60,3 +60,17 @@ Chosen option: **Option 3: GAT-AE on Pure Geometric H3 Adjacency**.
    Raw raster and vector data in `ingest_context.py` remain in their canonical scientific units (spectral indices in $[-1.0, 1.0]$, LST in Kelvin, pollutants in $\mu\text{g/m}^3$ and AQI points). Scaling to $[0, 1]$ occurs exclusively in `build_features.py` during Stage 3.
 3. **Global Floor-Count Derivation**:
    Building floor heights are grounded in international benchmarks (**EC JRC GHSL**; Biljecki & Chow, 2022) with $3.0\text{ m}$ for residential and $3.6\text{ m}$ for commercial structures, ensuring international portability.
+
+
+---
+
+## Amendment 2 (October 2026): Post-Peer-Review Hardening — Error Decomposition & Ablation
+
+1. **Attributed Reconstruction Error Decomposition (DOMINANT Framework)**:
+   To prevent unpopulated ecological and industrial boundaries (e.g., mangroves, golf courses, airport perimeters) from falsely registering as social inequality, total attribute reconstruction loss is decomposed additively into Socioeconomic Deprivation Friction ($\text{Friction}_{\text{socio}}$: living space, walking amenities, night radiance, bare soil) and Biophysical Contrast ($\text{Friction}_{\text{bio}}$: greenness, water, land surface temperature). True segregation boundaries require $\text{Friction}_{\text{socio}} \ge P_{85}$ across populated residential cells (`WorldPop > 0`).
+2. **Latent Bottleneck Ablation ($d \in \{2, 3, 4, 8\}$)**:
+   While $d=2$ is retained for direct, non-distorted Cartesian visualization and HDBSCAN clustering, the model architecture is benchmarked against higher latent capacities ($d \in \{3, 4, 8\}$) to evaluate reconstruction fidelity and prove the bottleneck does not induce catastrophic oversmoothing.
+3. **Robust Denominator Winsorization**:
+   To prevent high-density commercial corridors with small census population counts from creating explosive outliers in $R_{\text{space}}$, 99th percentile ($P_{99}$) winsorization is enforced prior to universal Min-Max normalization.
+4. **Benchmarking Against Linear Spatial Autocorrelation**:
+   The non-linear GAT self-attention edge friction ($1 - \alpha_{ij}$) is formally benchmarked against Bivariate Local Moran's $I$ (LISA) to demonstrate the necessity of deep geometric learning over isotropic linear spatial lags.
