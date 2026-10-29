@@ -20,9 +20,47 @@ This module implements the core unsupervised deep learning model for spatial dis
    the edge friction (1 - alpha_ij) confirms an unbridgeable socio-spatial boundary.
 """
 
+import h3
 import torch
 from torch import nn
 from torch_geometric.nn import GATConv
+
+
+def build_h3_geometric_graph(h3_hexes: list[str]) -> tuple[torch.Tensor, dict[str, int]]:
+    """
+    Constructs a PyTorch Geometric edge_index tensor from pure H3 geometric adjacency.
+
+    Parameters
+    ----------
+    h3_hexes : list[str]
+        List of target H3 hexagonal cell IDs.
+
+    Returns
+    -------
+    tuple[torch.Tensor, dict[str, int]]
+        - edge_index: LongTensor of shape (2, E) containing directed adjacency edges.
+        - hex_to_idx: Mapping from H3 index string to 0-based node integer index.
+    """
+    hex_set = set(h3_hexes)
+    hex_to_idx = {h: i for i, h in enumerate(h3_hexes)}
+
+    src_list: list[int] = []
+    dst_list: list[int] = []
+
+    for hex_id in h3_hexes:
+        u_idx = hex_to_idx[hex_id]
+        neighbors = h3.grid_disk(hex_id, 1)
+        for n in neighbors:
+            if n != hex_id and n in hex_set:
+                src_list.append(u_idx)
+                dst_list.append(hex_to_idx[n])
+
+    if not src_list:
+        edge_index = torch.empty((2, 0), dtype=torch.long)
+    else:
+        edge_index = torch.tensor([src_list, dst_list], dtype=torch.long)
+
+    return edge_index, hex_to_idx
 
 
 class SpatialGATAutoencoder(nn.Module):
