@@ -19,6 +19,8 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.pyc
+.ruff_cache/
 
 # Virtual environments
 .venv/
@@ -63,3 +65,11 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# DuckDB
+*.duckdb
+*.db
+
+# Dataset
+data/
+.h3/
