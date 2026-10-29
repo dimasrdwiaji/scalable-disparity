@@ -37,13 +37,16 @@ FEATURE_DIMENSIONS_10D: list[str] = [
 ]
 
 # Default international benchmark ranges for universal Min-Max scaling to [0.0, 1.0]
+# Note: For features subject to commercial or informal high-density clustering (e.g. cumulative amenities,
+# living floor area per capita, energy radiance), empirical P99 winsorization is recommended
+# rather than rigid hard-coded ceilings.
 DEFAULT_10D_BENCHMARKS: dict[str, tuple[float, float]] = {
     # 1. Living Space Ratio: 1.0 = UN-Habitat 9.0 m²/capita standard; capped at 5.0 (45 m²/capita)
     "space_sufficiency_ratio": (0.0, 5.0),
     # 2. Built-up Roof Density (NDBI): [-1.0, 1.0] true spectral range
     "builtup_ndbi": (-1.0, 1.0),
-    # 3. 15-Minute Walking Opportunities: cumulative destination count (0 to 50 amenities)
-    "cumulative_amenities_15m": (0.0, 50.0),
+    # 3. 15-Minute Walking Opportunities: cumulative destination count (0 to 300+ amenities accommodating dense retail/SMEs)
+    "cumulative_amenities_15m": (0.0, 300.0),
     # 4. Bare Soil / Unpaved Roads (BSI): [-1.0, 1.0] true spectral range
     "bare_soil_bsi": (-1.0, 1.0),
     # 5. Nighttime Energy Radiance (VIIRS): [0.0, 50.0] nW/cm²/sr
@@ -220,6 +223,7 @@ def normalize_feature_matrix(
 def build_10d_feature_matrix(
     raw_features_df: pd.DataFrame,
     benchmarks: dict[str, tuple[float, float]] | None = None,
+    winsorize_amenities_p99: bool = True,
 ) -> np.ndarray:
     """
     Standardizes and packages the 10 canonical living standard indicators into matrix X.
@@ -230,17 +234,29 @@ def build_10d_feature_matrix(
         DataFrame containing all 10 canonical feature columns indexed by H3 ID.
     benchmarks : dict[str, tuple[float, float]] | None, optional
         Custom benchmark mapping.
+    winsorize_amenities_p99 : bool, default True
+        Whether to apply P99 winsorization to cumulative amenities, preventing
+        extreme commercial nodes from dominating the scale while preserving
+        local SME/informal retail variance.
 
     Returns
     -------
     np.ndarray
         Normalized feature matrix X of shape (N, 10) in [0.0, 1.0].
     """
+    df = raw_features_df.copy()
+    if winsorize_amenities_p99 and "cumulative_amenities_15m" in df.columns:
+        if len(df) > 1:
+            df["cumulative_amenities_15m"] = winsorize_series(
+                df["cumulative_amenities_15m"], percentile=99.0
+            )
+
     return normalize_feature_matrix(
-        raw_features_df,
+        df,
         feature_cols=FEATURE_DIMENSIONS_10D,
         benchmarks=benchmarks,
     )
+
 
 
 def assemble_h3_features(
