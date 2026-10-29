@@ -130,3 +130,41 @@ def test_palma_ratio():
     palma = compute_palma_ratio(vals)
     assert palma > 0.0
     assert not np.isnan(palma)
+
+
+def test_focal_disparity_surface():
+    import h3
+
+    from phys_living_index.analysis.disparity_metrics import compute_focal_disparity_surface
+
+    rng = np.random.default_rng(42)
+    center_hex = h3.latlng_to_cell(-6.2, 106.8, 8)
+    hex_list = list(h3.grid_disk(center_hex, 2))  # 19 hexes
+    vals = rng.uniform(0.1, 0.9, size=len(hex_list))
+
+    focal_gini, focal_palma = compute_focal_disparity_surface(hex_list, vals, k_ring=1)
+    assert len(focal_gini) == len(hex_list)
+    assert len(focal_palma) == len(hex_list)
+    assert np.all(focal_gini >= 0.0)
+
+
+def test_bivariate_local_moran_baseline():
+    from phys_living_index.analysis.disparity_metrics import compute_bivariate_local_moran
+
+    n = 20
+    # Ring edges
+    src = np.arange(n)
+    dst = (src + 1) % n
+    edge_index = np.stack([np.concatenate([src, dst]), np.concatenate([dst, src])], axis=0)
+
+    # Sharp step function at half
+    x = np.concatenate([np.ones(10) * 0.1, np.ones(10) * 0.9])
+    y = np.concatenate([np.ones(10) * 0.2, np.ones(10) * 0.8])
+
+    lisa = compute_bivariate_local_moran(x, y, edge_index, permutations=99)
+    assert "Is" in lisa
+    assert "q" in lisa
+    assert "p_sim" in lisa
+    assert "is_outlier" in lisa
+    assert len(lisa["Is"]) == n
+

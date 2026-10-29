@@ -120,3 +120,114 @@ def compute_palma_ratio(
         return float("inf") if top_10_total > 0 else 0.0
 
     return float(top_10_total / bottom_40_total)
+
+
+def compute_focal_disparity_surface(
+    h3_hexes: list[str],
+    values: np.ndarray,
+    k_ring: int = 3,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Computes local focal Gini coefficient and Spatial Palma Ratio within a k-ring
+    neighborhood on the H3 grid (e.g. k=3 is ~3.5 km).
+
+    Parameters
+    ----------
+    h3_hexes : list[str]
+        List of target H3 hex index strings.
+    values : np.ndarray
+        Array of feature or PLSI values of shape (N,).
+    k_ring : int, default 3
+        Neighborhood radius in H3 cells.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        - focal_gini: Array of local Gini scores (N,).
+        - focal_palma: Array of local Palma ratios (N,).
+    """
+    import h3
+
+    hex_to_idx = {h: i for i, h in enumerate(h3_hexes)}
+    n = len(h3_hexes)
+    focal_gini = np.zeros(n, dtype=np.float32)
+    focal_palma = np.zeros(n, dtype=np.float32)
+
+    for i, hex_id in enumerate(h3_hexes):
+        neighbors = h3.grid_disk(hex_id, k_ring)
+        valid_indices = [hex_to_idx[nbr] for nbr in neighbors if nbr in hex_to_idx]
+        if len(valid_indices) > 2:
+            local_vals = values[valid_indices]
+            focal_gini[i] = compute_gini_coefficient(local_vals)
+            focal_palma[i] = compute_palma_ratio(local_vals)
+        else:
+            focal_gini[i] = 0.0
+            focal_palma[i] = 0.0
+
+    return focal_gini, focal_palma
+
+
+def compute_bivariate_local_moran(
+    x: np.ndarray,
+    y: np.ndarray,
+    edge_index: np.ndarray,
+    permutations: int = 999,
+    seed: int = 42,
+) -> dict[str, np.ndarray]:
+    """
+    Computes Bivariate Local Moran's I (LISA) as a classical linear spatial baseline (REV-4).
+
+    Identifies High-Low and Low-High spatial outlier boundaries between variable x and y.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Focal variable array of shape (N,).
+    y : np.ndarray
+        Neighbor context variable array of shape (N,).
+    edge_index : np.ndarray
+        Directed graph adjacency edges of shape (2, E).
+    permutations : int, default 999
+        Number of conditional permutations for pseudo p-values.
+    seed : int, default 42
+        Random seed for permutations.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        - Is: Local Moran statistics (N,).
+        - q: Quadrant category (1: HH, 2: LH, 3: LL, 4: HL).
+        - p_sim: Empirical pseudo p-values (N,).
+        - is_outlier: Boolean mask identifying HL and LH segregation border cells (p < 0.05).
+    """
+    from esda.moran import Moran_Local_BV
+    from libpysal.weights import W
+
+    n = len(x)
+    # Build libpysal adjacency dictionary from edge_index
+    neighbors: dict[int, list[int]] = {i: [] for i in range(n)}
+    src, dst = edge_index[0], edge_index[1]
+    for u, v in zip(src, dst):
+        neighbors[int(u)].append(int(v))
+
+    # Ensure every node has at least one neighbor for W creation
+    for i in range(n):
+        if not neighbors[i]:
+            neighbors[i] = [i]
+
+    w = W(neighbors)
+    w.transform = "R"
+
+    lm_bv = Moran_Local_BV(x, y, w, transformation="r", permutations=permutations, seed=seed)
+
+    # Quadrant 2: Low-High (under-served next to affluent)
+    # Quadrant 4: High-Low (affluent next to under-served)
+    is_outlier = (lm_bv.p_sim < 0.05) & ((lm_bv.q == 2) | (lm_bv.q == 4))
+
+    return {
+        "Is": lm_bv.Is,
+        "q": lm_bv.q,
+        "p_sim": lm_bv.p_sim,
+        "is_outlier": is_outlier,
+    }
+
