@@ -67,7 +67,7 @@ def compute_gini_coefficient(
     if hasattr(np, "trapezoid"):
         lorenz_area = np.trapezoid(relative_wealth, relative_pop)
     else:
-        lorenz_area = np.trapz(relative_wealth, relative_pop)
+        lorenz_area = np.trapz(relative_wealth, relative_pop)  # noqa: NPY201
 
     gini = 1.0 - 2.0 * lorenz_area
     return float(np.clip(gini, 0.0, 1.0))
