@@ -20,9 +20,47 @@ This module implements the core unsupervised deep learning model for spatial dis
    the edge friction (1 - alpha_ij) confirms an unbridgeable socio-spatial boundary.
 """
 
+import h3
 import torch
 from torch import nn
 from torch_geometric.nn import GATConv
+
+
+def build_h3_geometric_graph(h3_hexes: list[str]) -> tuple[torch.Tensor, dict[str, int]]:
+    """
+    Constructs a PyTorch Geometric edge_index tensor from pure H3 geometric adjacency.
+
+    Parameters
+    ----------
+    h3_hexes : list[str]
+        List of target H3 hexagonal cell IDs.
+
+    Returns
+    -------
+    tuple[torch.Tensor, dict[str, int]]
+        - edge_index: LongTensor of shape (2, E) containing directed adjacency edges.
+        - hex_to_idx: Mapping from H3 index string to 0-based node integer index.
+    """
+    hex_set = set(h3_hexes)
+    hex_to_idx = {h: i for i, h in enumerate(h3_hexes)}
+
+    src_list: list[int] = []
+    dst_list: list[int] = []
+
+    for hex_id in h3_hexes:
+        u_idx = hex_to_idx[hex_id]
+        neighbors = h3.grid_disk(hex_id, 1)
+        for n in neighbors:
+            if n != hex_id and n in hex_set:
+                src_list.append(u_idx)
+                dst_list.append(hex_to_idx[n])
+
+    if not src_list:
+        edge_index = torch.empty((2, 0), dtype=torch.long)
+    else:
+        edge_index = torch.tensor([src_list, dst_list], dtype=torch.long)
+
+    return edge_index, hex_to_idx
 
 
 class SpatialGATAutoencoder(nn.Module):
@@ -154,3 +192,79 @@ class SpatialGATAutoencoder(nn.Module):
             Per-node reconstruction friction scalar of shape (N,).
         """
         return torch.sum((x - x_hat) ** 2, dim=1)
+
+    def compute_attributed_friction(
+        self,
+        x: torch.Tensor,
+        x_hat: torch.Tensor,
+        socio_indices: list[int] | None = None,
+        bio_indices: list[int] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        """
+        DOMINANT-style error decomposition separating total reconstruction error into
+        Socioeconomic Friction and Biophysical Contrast (REV-5).
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Ground truth feature matrix (N, in_channels).
+        x_hat : torch.Tensor
+            Reconstructed feature matrix (N, in_channels).
+        socio_indices : list[int] | None, optional
+            Channel indices corresponding to socioeconomic physical indicators
+            [0: R_space, 1: NDBI, 2: A_amenity, 3: BSI, 4: E_night].
+        bio_indices : list[int] | None, optional
+            Channel indices corresponding to biophysical/environmental indicators
+            [5: NDVI, 6: LST_inv, 7: MNDWI, 8: PM25_inv, 9: AQI_inv].
+
+        Returns
+        -------
+        dict[str, torch.Tensor]
+            - friction_total: Total reconstruction error (N,).
+            - friction_socio: Socioeconomic friction (N,).
+            - friction_bio: Biophysical contrast (N,).
+        """
+        if socio_indices is None:
+            socio_indices = [0, 1, 2, 3, 4]
+        if bio_indices is None:
+            bio_indices = [5, 6, 7, 8, 9]
+
+        sq_diff = (x - x_hat) ** 2
+        total_friction = torch.sum(sq_diff, dim=1)
+        socio_friction = torch.sum(sq_diff[:, socio_indices], dim=1)
+        bio_friction = torch.sum(sq_diff[:, bio_indices], dim=1)
+
+        return {
+            "friction_total": total_friction,
+            "friction_socio": socio_friction,
+            "friction_bio": bio_friction,
+        }
+
+    def compute_edge_boundary_friction(
+        self,
+        edge_index: torch.Tensor,
+        alpha: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes edge-level boundary friction (1 - alpha_ij) from learned GAT attention weights.
+
+        Parameters
+        ----------
+        edge_index : torch.Tensor
+            Directed graph edge index (2, E).
+        alpha : torch.Tensor
+            Attention coefficients (E, heads) or (E,).
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            - edge_index: Graph edge index (2, E).
+            - edge_friction: Mean edge boundary friction in [0.0, 1.0] of shape (E,).
+        """
+        if alpha.dim() > 1:
+            mean_alpha = torch.mean(alpha, dim=1)
+        else:
+            mean_alpha = alpha
+        edge_friction = 1.0 - mean_alpha
+        return edge_index, edge_friction
+
