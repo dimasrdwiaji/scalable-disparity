@@ -170,8 +170,9 @@ Measuring socio-spatial inequality and informal living standards in Global South
 #### Benchmark Comparisons and Validation
 - **Continuous Correlation with Meta RWI**: Pixel-level correlation across $N > 2,000$ points ($r \ge 0.65$, $p < 0.001$).
 - **The 4-Quadrant Divergence Analysis**: Mapping and statistical profiling of Quadrant III (Asset-Rich, Physically Deprived Kampungs).
-- **Benchmarking Against Bivariate Local Moran's $I$**: Demonstrating non-linear GAT-AE superior capture of directional topological boundaries.
-- **Macro-Level BPS SUSENAS Audit**: Population-weighted municipal regression against official poverty rates across 15 *Kabupaten/Kota*, reporting 95% confidence intervals and acknowledging $df=13$ sample limitations.
+- **Micro-Scale Ground-Truth Validation vs. Kementerian PUPR KOTAKU Registry**: Spatial overlap and classification accuracy against $N = 608$ gazetted sub-standard settlement polygons across DKI Jakarta (445 RWs under Pergub 90/2018) and Bodetabek/Karawang (163 SK Kumuh tapak sites). Reports ROC-AUC, Precision-Recall, 4-tier severity stratification, and sub-dimension concordance against PUPR's 7 statutory physical parameters (`Bangunan`, `Jalan`, `Drainase`).
+- **Benchmarking Against Bivariate Local Moran's $I$**: Demonstrating non-linear GAT-AE superior capture of directional topological boundaries over linear spatial autocorrelation.
+- **Secondary Macro-Level BPS SUSENAS Audit**: Population-weighted municipal regression against official poverty rates across 15 *Kabupaten/Kota*, reporting 95% confidence intervals and acknowledging $df=13$ sample limitations.
 
 #### Sensitivity and Ablation Analysis
 - **Bottleneck Ablation ($d \in \{2, 3, 4, 8\}$)**: Reconstruction MSE, topological loss, and HDBSCAN silhouette scores.
@@ -192,7 +193,7 @@ Measuring socio-spatial inequality and informal living standards in Global South
 #### Transparent Limitations
 - **Nominal Floor Heights**: Lack of open airborne LiDAR and indoor cadastral plans; reliance on international nominal standards ($3.0\text{ m}$).
 - **Informal Economy Omission**: Inability of global digital map databases (Overture, OSM) to capture unrecorded informal micro-vendors (*warung*, street food).
-- **Macro Survey Resolution**: Statistical design limitations of BPS SUSENAS preventing public release of sub-district consumption data.
+- **Macro Survey Resolution & Micro Grounding**: Statistical design limitations of BPS SUSENAS preventing public release of sub-district consumption data, resolved by anchoring empirical validation to the official Kementerian PUPR KOTAKU micro-scale registry ($N = 608$).
 
 ---
 

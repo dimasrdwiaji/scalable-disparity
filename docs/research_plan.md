@@ -23,8 +23,9 @@ This project designs, simulates, and deploys a **reproducible, cloud-native GeoA
 > 4. **Geometric Centroid Isochrone Routing**: 15-minute pedestrian catchments are calculated from the mathematical center of each H3 Res-8 cell snapped to OSMnx/Overture pedestrian street lines, using batched multi-source Dijkstra via `scipy.sparse.csgraph`.
 > 5. **Multi-Tiered Validation & Divergence Strategy**:
 >    * *4-Quadrant Divergence vs. Meta RWI*: Evaluates continuous spatial concordance across $N > 2,000$ cells (2.4 km) while isolating Quadrant III (asset-wealthy but physically deprived informal settlements) to prove PLSI's distinct contribution over survey asset indices.
+>    * *Micro-Scale Ground-Truth Validation vs. Kementerian PUPR KOTAKU Registry*: Directly benchmarks unsupervised PLSI and GAT-AE anomaly metrics against $N = 608$ gazetted sub-standard settlement polygons across the entire metropolitan transect: 445 official RW Kumuh polygons in DKI Jakarta (Pergub 90/2018 & Pergub 33/2024 / CAP-CIP) and 163 site-level tapak polygons in peripheral regencies (Karawang & Depok SK Kumuh Decrees under Permen PUPR 14/PRT/M/2018). Evaluates ROC-AUC, Precision-Recall curves, 4-tier severity stratification, and sub-dimension concordance against PUPR's 7 statutory physical indicators (`Bangunan`, `Jalan`, `Drainase`).
 >    * *Bivariate Local Moran's $I$ (LISA) Baseline*: Directly compares the non-linear GAT-AE against linear spatial autocorrelation.
->    * *Macro Plausibility Audit*: Population-weighted zonal aggregation into BPS administrative polygons, regressed against BPS SUSENAS poverty rates across the ~15 *Kabupaten/Kota* in Jabodetabek + Karawang, with reported 95% confidence intervals and degrees-of-freedom limitations.
+>    * *Secondary Macro Plausibility Check*: Population-weighted zonal aggregation into BPS administrative polygons regressed against municipal BPS SUSENAS poverty rates ($N \approx 15$, $df=13$) reported with 95% confidence intervals and acknowledged small-sample degrees-of-freedom limitations.
 
 ---
 
@@ -214,10 +215,16 @@ Runs **HDBSCAN** on the latent representations ($Z$) to autonomously discover na
 #### [NEW] `src/validation/evaluate_rwi.py`
 Executes continuous spatial correlation and **4-Quadrant Divergence Analysis** against Meta's Relative Wealth Index (RWI) at 2.4 km resolution across all $N > 2,000$ study cells. Specifically maps and analyzes **Quadrant III (Asset-Wealthy, Physically Deprived Cores)** to demonstrate where PLSI captures living conditions that asset ownership indices fail to measure.
 
-#### [NEW] `src/validation/audit_bps.py`
-Executes population-weighted zonal aggregation of H3 metrics into BPS *Kabupaten/Kota* boundaries and performs OLS regression against official BPS SUSENAS poverty rates and municipal Gini ratios ($N \approx 15$, $df=13$):
+#### [NEW] `src/validation/validate_kotaku.py` (Primary Ground-Truth Benchmark)
+Executes cell-level spatial intersection and multi-task statistical evaluation against the **Kementerian PUPR SIM-KOTAKU** national registry ($N = 608$ gazetted sub-standard settlement polygons):
+1. **Binary Discrimination & ROC-AUC/PR Curves**: Measures sensitivity and specificity in discriminating gazetted informal settlements from formal urban fabric across both core Jakarta and peripheral regencies.
+2. **Ordinal Severity Stratification (DKI Jakarta)**: Evaluates whether PLSI monotonically differentiates non-slum areas from the 4 official severity tiers (`Sangat Ringan` $\to$ `Ringan` $\to$ `Sedang` $\to$ `Berat`, $N=445$).
+3. **Physical Sub-Dimension Concordance (KOTAKU Karawang & Depok)**: Benchmarks individual 10D sub-dimensions against PUPR's 7 statutory physical parameters (living space vs. `Bangunan`, walking isochrones vs. `Jalan`, flood/elevation vs. `Drainase`).
+
+#### [NEW] `src/validation/audit_bps.py` (Secondary Macro Check)
+Executes population-weighted zonal aggregation of H3 metrics into BPS *Kabupaten/Kota* boundaries as a secondary macro check against official BPS SUSENAS poverty rates ($N \approx 15$, $df=13$):
 $$\text{BPS Poverty Rate}_k = \beta_0 + \beta_1 \cdot \overline{\text{PLSI}}_k + \epsilon$$
-Reports 95% confidence intervals and explicitly frames the analysis as a macro-level plausibility check subject to small-sample degrees-of-freedom limitations.
+Reports 95% confidence intervals while noting small-sample degrees-of-freedom limitations.
 
 ---
 
@@ -237,7 +244,8 @@ Reports 95% confidence intervals and explicitly frames the analysis as a macro-l
 * **Spatial Alignment Verification**: Inspect the segregation friction map in QGIS / Kepler.gl over known border areas (e.g., the boundary wall between BSD City and Kampung Sampora) to confirm that the GNN reconstruction error spikes precisely along physical barriers.
 * **Latent Bottleneck Ablation**: Quantify reconstruction MSE, topological BCE, and HDBSCAN cluster silhouette scores across $d \in \{2, 3, 4, 8\}$.
 * **Floor Height Sensitivity**: Run sensitivity evaluation across $h_{\text{floor}} \in \{2.5\text{ m}, 3.0\text{ m}, 3.5\text{ m}\}$ to demonstrate rank invariance (Spearman $r_s > 0.94$).
-* **BPS SUSENAS Benchmark**: Regress the aggregated municipal Physical Living Standard Index against official BPS poverty rates across the ~15 *Kabupaten/Kota* in the Jabodetabek + Karawang study area (the 14 Jabodetabek administrative units plus Karawang Regency), confirming Pearson $r \ge 0.65$ ($p < 0.001$), reporting 95% confidence intervals.
+* **Kementerian PUPR KOTAKU Ground-Truth Benchmark**: Evaluate spatial intersection and classification accuracy against $N = 608$ gazetted sub-standard settlement polygons across DKI Jakarta (445 RWs) and Bodetabek/Karawang (163 SK Kumuh tapak sites), achieving ROC-AUC $\ge 0.80$ and demonstrating statistically significant monotonic separation across the 4 official severity tiers ($p < 0.001$).
+* **Secondary BPS SUSENAS Benchmark**: Regress the aggregated municipal Physical Living Standard Index against official BPS poverty rates across the ~15 *Kabupaten/Kota* in the Jabodetabek + Karawang study area as a macro plausibility check, reporting 95% confidence intervals and small-sample limitations.
 
 ---
 
@@ -247,5 +255,5 @@ Reports 95% confidence intervals and explicitly frames the analysis as a macro-l
    In the absence of open city-wide airborne LiDAR point clouds or municipal BIM cadastres in Jabodetabek, building floor counts are derived from Google Open Buildings v3 2.5D heights using international EC JRC GHSL nominal standards ($3.0\text{ m}$ residential, $3.6\text{ m}$ commercial; Corbane et al., 2021). While informal settlements frequently feature sub-standard ceiling heights ($2.4\text{ m}$) and formal luxury towers contain non-habitable parking podiums, sensitivity checks demonstrate that spatial inequality rankings remain stable across height parameters.
 2. **Informal Economic Amenities**:
    Overture Maps Foundation provides superior global POI deduplication and GERS classification. However, all digital map databases inherently underrepresent unrecorded informal street economies (*warungs*, mobile vendors, informal daycares). Consequently, $A_{\text{amenity}}$ explicitly measures accessibility to the *formal institutional urban backbone* (accredited clinics, formal schools, supermarkets, designated parks) governed by municipal spatial planning frameworks (RTRW).
-3. **Census Validation Scale Constraints**:
-   Official Indonesian socio-economic consumption surveys (BPS SUSENAS) are designed for statistical representation at the municipal (*Kabupaten/Kota*) level. Official expenditure poverty rates are not publicly published at sub-district (*Kecamatan*) or village (*Kelurahan*) levels via WebAPI. The municipal BPS audit ($N \approx 15$) is therefore framed as a regional macro-level plausibility check, while continuous 2.4 km pixel grids ($N > 2,000$) provide the primary high-power statistical validation surface.
+3. **Macro Census Scale Resolution & Micro Ground-Truth Grounding**:
+   Official Indonesian socio-economic consumption surveys (BPS SUSENAS) are designed for statistical representation only at the municipal (*Kabupaten/Kota*) level. Aggregating micro-scale H3 hexes to city polygons ($N \approx 15$) risks ecological fallacy and masks sharp intra-urban inequalities. To overcome this, our primary empirical validation bypasses city-level census aggregation entirely, directly evaluating predictions against the official **Kementerian PUPR SIM-KOTAKU** national registry ($N = 608$ micro-scale gazetted settlement polygons at 0.05–0.3 km²), supported by continuous 2.4 km Meta RWI grids ($N > 2,000$).
