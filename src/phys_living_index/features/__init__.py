@@ -7,6 +7,6 @@ from .isochrones import compute_walking_isochrones
 
 __all__ = [
     "assemble_h3_features",
-    "normalize_feature_matrix",
     "compute_walking_isochrones",
+    "normalize_feature_matrix",
 ]

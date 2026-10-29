@@ -44,17 +44,21 @@ This project designs, simulates, and deploys a **reproducible, cloud-native GeoA
 ┌────────────────────────────────────────────▼────────────────────────────────────────────┐
 │                    2. H3 DISCRETE GLOBAL GRID (Res 8: ~0.74 km², ~460m)                 │
 │  X1: Space Sufficiency Ratio: R_space = (Observed Residential Area / Cap) / 9.0 m²      │
-│  X2: Cumulative Walk Amenities: Count of Schools, Clinics, Parks, Food (15-min walk)    │
-│  X3: Economic Energy Radiance: VIIRS Radiance per Capita                                │
-│  X4: Environmental Canopy: Sentinel-2 NDVI (0 to 1)                                     │
-│  X5: Thermal Comfort Index: Inverted Landsat/Open-Meteo Land Surface Temperature (LST)  │
-│  X6: Air Purity Index: Inverted PM2.5 Exposure against WHO Guidelines                   │
-│  ==> Universal Min-Max Normalization to [0, 1] per Feature                              │
+│  X2: Built-Up Density: Sentinel-2 NDBI (Roof packing & impervious surfaces)             │
+│  X3: Cumulative Walk Amenities: Count of Schools, Clinics, Parks, Food (15-min walk)    │
+│  X4: Unpaved Infrastructure: Sentinel-2 BSI (Bare soil & unpaved dirt roads)           │
+│  X5: Economic Energy Radiance: VIIRS Radiance per Capita                                │
+│  X6: Environmental Canopy: Sentinel-2 NDVI (-1.0 to 1.0)                                │
+│  X7: Thermal Comfort Index: Inverted Landsat Land Surface Temperature (LST in K)         │
+│  X8: Drainage & Water Exposure: Sentinel-2 MNDWI (Open drainage & flood risk)           │
+│  X9: Fine Particulate Air Purity: Inverted PM2.5 Exposure against WHO Guidelines        │
+│  X10: Multi-Pollutant Air Purity: Inverted Official European/US Air Quality Index (AQI) │
+│  ==> Universal Min-Max Normalization to [0, 1] per Feature in Stage 3                   │
 └────────────────────────────────────────────┬────────────────────────────────────────────┘
                                              │
 ┌────────────────────────────────────────────▼────────────────────────────────────────────┐
 │              3. UNSUPERVISED GRAPH AUTOENCODER (PyTorch Geometric on H3 Graph)           │
-│  • Nodes: H3 Hex Cells (Feature matrix X in R^{N x 6})                                  │
+│  • Nodes: H3 Hex Cells (Feature matrix X in R^{N x 10})                                 │
 │  • Edges: Pure H3 Geometric Adjacency (A in R^{N x N})                                   │
 │  • Encoder: 2-layer Graph Attention Network (GAT) compressing X -> Z (Bottleneck d=2)   │
 │  • Decoder: Reconstructs feature matrix X_hat and adjacency A_hat                       │

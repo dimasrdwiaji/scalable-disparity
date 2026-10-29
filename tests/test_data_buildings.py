@@ -1,17 +1,16 @@
-from pathlib import Path
+import geopandas as gpd
 import numpy as np
 import pandas as pd
-import geopandas as gpd
-from shapely.geometry import box, Polygon, Point
-import rasterio
 import pytest
+import rasterio
+from shapely.geometry import box
 
 from phys_living_index.data.ingest_buildings import (
     build_open_buildings_query,
-    filter_by_confidence,
     derive_floor_count,
-    intersect_residential_mask,
     fetch_open_buildings_filtered,
+    filter_by_confidence,
+    intersect_residential_mask,
 )
 
 
@@ -44,11 +43,39 @@ def test_filter_by_confidence():
     assert np.all(filtered["confidence"] >= 0.65)
 
 
-def test_derive_floor_count():
-    heights = pd.Series([0.0, 1.5, 2.9, 3.0, 5.9, 6.0, 9.1, 30.0])
-    floors = derive_floor_count(heights, floor_height=3.0)
-    expected = [1, 1, 1, 1, 1, 2, 3, 10]
+def test_derive_floor_count_height_only():
+    # Heights tested with GHSL standard: 3.0m for < 35m, 3.6m for >= 35m
+    heights = pd.Series([0.0, 1.5, 2.9, 3.0, 5.9, 6.0, 9.1, 30.0, 36.0, 72.0])
+    floors = derive_floor_count(heights)
+    # 0m -> 1, 1.5m -> 1, 2.9m -> 1, 3m -> 1, 5.9m -> 1, 6m -> 2, 9.1m -> 3, 30m -> 10,
+    # 36m (>=35m, 36/3.6) -> 10, 72m (72/3.6) -> 20
+    expected = [1, 1, 1, 1, 1, 2, 3, 10, 10, 20]
     assert list(floors) == expected
+
+
+def test_derive_floor_count_explicit_attributes():
+    # When explicit floor attributes exist, they must take precedence over height
+    df = pd.DataFrame({
+        "id": ["b1", "b2", "b3"],
+        "height": [10.0, 15.0, 30.0],
+        "num_floors": [4, 6, np.nan],  # b1 has 4 floors, b2 has 6 floors, b3 missing
+    })
+    floors = derive_floor_count(df)
+    # b1: explicit 4; b2: explicit 6; b3: derived from height 30/3 = 10
+    assert list(floors) == [4, 6, 10]
+
+
+def test_derive_floor_count_subtype_stratification():
+    # Test commercial vs residential international GHSL benchmarks
+    df = pd.DataFrame({
+        "id": ["res1", "comm1"],
+        "height": [18.0, 18.0],
+        "subtype": ["residential", "commercial"],
+    })
+    floors = derive_floor_count(df)
+    # res1: 18 / 3.0 = 6 floors
+    # comm1: 18 / 3.6 = 5 floors
+    assert list(floors) == [6, 5]
 
 
 def test_intersect_residential_mask():
@@ -75,8 +102,6 @@ def test_intersect_residential_raster_mask(tmp_path):
     # Test GeoTIFF raster mask handling
     mask_tif = tmp_path / "ghs_built_c.tif"
     transform = rasterio.transform.from_bounds(0.0, 0.0, 2.0, 2.0, 2, 2)
-    # 2x2 grid: upper-left is 1 (residential), rest is 0 (non-residential)
-    # Note: in raster coords, row 0 is top (lat 1-2), row 1 is bottom (lat 0-1)
     data = np.array([[1, 0], [0, 0]], dtype=np.uint8)
     with rasterio.open(
         mask_tif, "w", driver="GTiff", height=2, width=2, count=1, dtype="uint8", crs="EPSG:4326", transform=transform
@@ -101,10 +126,10 @@ def test_live_open_buildings_small_sub_bbox(tmp_path):
     bbox = (106.82, -6.18, 106.825, -6.175)
     out_file = tmp_path / "buildings.parquet"
     res = fetch_open_buildings_filtered(bbox, output_parquet=out_file, min_confidence=0.65)
-    
+
     assert res.exists()
     gdf = gpd.read_parquet(res)
     assert len(gdf) > 0
-    assert set(["id", "geometry", "height", "confidence", "floor_count"]).issubset(gdf.columns)
+    assert {"id", "geometry", "height", "confidence", "floor_count"}.issubset(gdf.columns)
     assert np.all(gdf["confidence"] >= 0.65)
     assert np.all(gdf["floor_count"] >= 1)

@@ -1,16 +1,36 @@
 """
-Ingest Overture Maps Foundation Places & Transportation directly from AWS S3 using DuckDB spatial.
+Ingest Overture Maps Foundation Places & Transportation from AWS S3 using DuckDB spatial.
+
+Overture Maps Foundation (Linux Foundation, Amazon, Meta, Microsoft, TomTom) provides
+globally standardized open geospatial themes partitioned into Cloud-Native GeoParquet
+hosted on Amazon S3.
+
+This module provides:
+1. Pure query builders that construct partitioned S3 spatial SQL queries.
+2. Thin I/O callers executing DuckDB queries over public S3 buckets with zero AWS credentials.
 """
 
-from typing import Tuple, Union, Optional
-import duckdb
 from pathlib import Path
 
-DEFAULT_OVERTURE_RELEASE = "2026-10-21.0"
+import duckdb
+
+# Current stable Overture Maps release partition on AWS S3
+DEFAULT_OVERTURE_RELEASE: str = "2026-10-21.0"
 
 
 def get_duckdb_spatial_connection() -> duckdb.DuckDBPyConnection:
-    """Initialize a DuckDB connection with spatial and httpfs extensions."""
+    """
+    Initializes an in-memory DuckDB connection with spatial and HTTPFS extensions loaded.
+
+    Configures S3 settings for the public Overture Maps bucket in us-west-2:
+    - s3_region: 'us-west-2' (AWS region hosting Overture S3 buckets).
+    - s3_url_style: 'path' (compatible with DuckDB HTTPFS S3 path syntax).
+
+    Returns
+    -------
+    duckdb.DuckDBPyConnection
+        Configured DuckDB connection handle ready for spatial Parquet queries.
+    """
     con = duckdb.connect()
     con.execute("INSTALL spatial; LOAD spatial;")
     con.execute("INSTALL httpfs; LOAD httpfs;")
@@ -20,13 +40,32 @@ def get_duckdb_spatial_connection() -> duckdb.DuckDBPyConnection:
 
 
 def build_overture_amenities_query(
-    bbox: Tuple[float, float, float, float],
-    output_parquet: Union[str, Path],
+    bbox: tuple[float, float, float, float],
+    output_parquet: str | Path,
     release: str = DEFAULT_OVERTURE_RELEASE,
 ) -> str:
     """
-    Pure query builder constructing the DuckDB SQL statement to query Overture Places
-    and Base themes from AWS S3.
+    Constructs a DuckDB SQL query to extract essential amenities and green spaces from Overture.
+
+    Extracts:
+    - Overture Places: Primary essential destinations (education.school, healthcare.hospital,
+      healthcare.clinic, commercial.supermarket_grocery).
+    - Overture Base (Land Use): Public open recreation and green spaces (park, sports_pitch,
+      recreation_ground).
+
+    Parameters
+    ----------
+    bbox : tuple[float, float, float, float]
+        Bounding box coordinates in WGS84: (min_lon, min_lat, max_lon, max_lat).
+    output_parquet : str | Path
+        Target filepath where extracted amenities will be saved as GeoParquet.
+    release : str, optional
+        Overture release date partition tag (e.g. '2026-10-21.0').
+
+    Returns
+    -------
+    str
+        DuckDB COPY ... TO SQL statement.
     """
     min_lon, min_lat, max_lon, max_lat = bbox
     out_str = Path(output_parquet).as_posix()
@@ -60,13 +99,30 @@ def build_overture_amenities_query(
 
 
 def build_overture_transportation_query(
-    bbox: Tuple[float, float, float, float],
-    output_parquet: Union[str, Path],
+    bbox: tuple[float, float, float, float],
+    output_parquet: str | Path,
     release: str = DEFAULT_OVERTURE_RELEASE,
 ) -> str:
     """
-    Pure query builder constructing the DuckDB SQL statement to query Overture Transportation
-    pedestrian-walkable segments from AWS S3.
+    Constructs a DuckDB SQL query to extract pedestrian-walkable road and path segments.
+
+    Filters Overture Transportation segments:
+    - Excludes railway corridors (subtype != 'rail') to focus on walkable paths and streets.
+    - Captures pedestrian rights-of-way, sidewalks, local streets, and alleys.
+
+    Parameters
+    ----------
+    bbox : tuple[float, float, float, float]
+        Bounding box coordinates in WGS84: (min_lon, min_lat, max_lon, max_lat).
+    output_parquet : str | Path
+        Target filepath where extracted road segments will be saved as GeoParquet.
+    release : str, optional
+        Overture release date partition tag.
+
+    Returns
+    -------
+    str
+        DuckDB COPY ... TO SQL statement.
     """
     min_lon, min_lat, max_lon, max_lat = bbox
     out_str = Path(output_parquet).as_posix()
@@ -87,36 +143,76 @@ def build_overture_transportation_query(
 
 
 def fetch_overture_amenities(
-    bbox: Tuple[float, float, float, float],
-    output_parquet: Path,
+    bbox: tuple[float, float, float, float],
+    output_parquet: Path | str,
     release: str = DEFAULT_OVERTURE_RELEASE,
 ) -> Path:
     """
-    Queries Overture Maps Places & Base themes directly from AWS S3 over the bounding box.
-    Thin I/O function executing the query via DuckDB spatial.
+    Executes the Overture Places and Base land-use query and writes GeoParquet to disk.
+
+    Thin I/O function that delegates to DuckDB spatial over S3.
+
+    Parameters
+    ----------
+    bbox : tuple[float, float, float, float]
+        Target spatial bounds (min_lon, min_lat, max_lon, max_lat).
+    output_parquet : Path | str
+        Destination path for output GeoParquet.
+    release : str, optional
+        Overture release partition tag.
+
+    Returns
+    -------
+    Path
+        Path to the verified output file.
     """
     output_parquet = Path(output_parquet)
     output_parquet.parent.mkdir(parents=True, exist_ok=True)
     con = get_duckdb_spatial_connection()
     query = build_overture_amenities_query(bbox, output_parquet, release=release)
-    con.execute(query)
-    con.close()
+
+    try:
+        con.execute(query)
+    finally:
+        con.close()
+
+    assert output_parquet.exists() and output_parquet.stat().st_size > 0, "Overture amenities file was not written"
     return output_parquet
 
 
 def fetch_overture_transportation(
-    bbox: Tuple[float, float, float, float],
-    output_parquet: Path,
+    bbox: tuple[float, float, float, float],
+    output_parquet: Path | str,
     release: str = DEFAULT_OVERTURE_RELEASE,
 ) -> Path:
     """
-    Queries Overture Maps Transportation (pedestrian-walkable lines) from AWS S3.
-    Thin I/O function executing the query via DuckDB spatial.
+    Executes the Overture Transportation segment query and writes GeoParquet to disk.
+
+    Thin I/O function that delegates to DuckDB spatial over S3.
+
+    Parameters
+    ----------
+    bbox : tuple[float, float, float, float]
+        Target spatial bounds (min_lon, min_lat, max_lon, max_lat).
+    output_parquet : Path | str
+        Destination path for output GeoParquet.
+    release : str, optional
+        Overture release partition tag.
+
+    Returns
+    -------
+    Path
+        Path to the verified output file.
     """
     output_parquet = Path(output_parquet)
     output_parquet.parent.mkdir(parents=True, exist_ok=True)
     con = get_duckdb_spatial_connection()
     query = build_overture_transportation_query(bbox, output_parquet, release=release)
-    con.execute(query)
-    con.close()
+
+    try:
+        con.execute(query)
+    finally:
+        con.close()
+
+    assert output_parquet.exists() and output_parquet.stat().st_size > 0, "Overture transportation file was not written"
     return output_parquet

@@ -7,10 +7,7 @@ project:
 
 spatial:
   # Greater Jakarta (Jabodetabek) + Karawang Regency Bounding Box: [min_lon, min_lat, max_lon, max_lat]
-  # Eastward extension to 107.65 added to capture Karawang's industrial-labor-housing vs.
-  # agrarian-hinterland disparity archetype. Karawang's eastern extent here is an estimate from
-  # regency boundary points, not a verified admin polygon -- confirm against an authoritative
-  # boundary (OSM relation or BPS) during Stage 2 ingestion before treating it as final.
+  # Eastward extension to 107.65 captures Karawang's industrial-labor-housing vs. agrarian-hinterland disparity.
   bbox: [106.35, -6.75, 107.65, -5.95]
   h3_resolution: 8 # ~0.737 km², edge length ~461m
   isochrone:
@@ -22,24 +19,31 @@ spatial:
 standards:
   un_habitat_min_living_space_m2: 9.0
   who_pm25_annual_threshold_ugm3: 15.0
-  radiance_saturation_ceiling_nw: 15.0
+  radiance_saturation_ceiling_nw: 50.0
+  # International Building Standards (EC JRC GHSL; Biljecki & Chow, 2022)
+  ghsl_residential_floor_height_m: 3.0
+  ghsl_commercial_floor_height_m: 3.6
 
 features:
-  dimensions: 6
+  dimensions: 10
   names:
     - "space_sufficiency_ratio"
+    - "builtup_ndbi"
     - "cumulative_amenities_15m"
+    - "bare_soil_bsi"
     - "nighttime_energy_radiance"
     - "vegetation_ndvi"
     - "thermal_comfort_lst_inv"
+    - "water_mndwi"
     - "air_purity_pm25_inv"
+    - "multi_pollutant_aqi_inv"
   open_buildings:
     min_confidence: 0.65
     floor_height_meters: 3.0
 
 model:
   architecture: "SpatialGATAutoencoder"
-  in_channels: 6
+  in_channels: 10
   hidden_dim: 16
   latent_dim: 2
   heads: 2
@@ -49,17 +53,10 @@ model:
   epochs: 150
   loss_weights:
     reconstruction: 1.0
-    graph_adjacency: 0.1
+    smoothness: 0.2
 
-clustering:
+typologies:
   algorithm: "hdbscan"
   min_cluster_size: 25
   min_samples: 10
   metric: "euclidean"
-
-validation:
-  rwi:
-    resolution_km: 2.4
-  bps:
-    level: "kabupaten_kota"
-    min_correlation: 0.65
