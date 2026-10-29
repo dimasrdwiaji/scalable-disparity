@@ -60,3 +60,9 @@ markers = [
     "integration: marks tests as live integration tests requiring network (skipped by default)",
 ]
 addopts = "-m 'not integration'"
+filterwarnings = [
+    "ignore::DeprecationWarning:torch_geometric.*",
+    "ignore::DeprecationWarning:esda.*",
+    "ignore::FutureWarning:torch.jit.*",
+    "ignore:Geometry is in a geographic CRS:UserWarning",
+]
