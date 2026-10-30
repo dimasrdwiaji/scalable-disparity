@@ -26,7 +26,7 @@ from .ingest_overture import get_duckdb_spatial_connection
 
 # Source Cooperative / Vida Open Buildings IDN distribution mirror
 DEFAULT_OPEN_BUILDINGS_SOURCE_URL: str = (
-    "https://data.source.coop/vida/google-microsoft-open-buildings/geoparquet/by_country_s2/country_iso=IDN/*"
+    "s3://us-west-2.opendata.source.coop/vida/google-microsoft-osm-open-buildings/geoparquet/by_country_s2/country_iso=IDN/*.parquet"
 )
 
 # International nominal floor-to-floor height benchmarks (GHSL, UN-Habitat, Biljecki & Chow 2022)
@@ -38,6 +38,8 @@ def build_open_buildings_query(
     bbox: tuple[float, float, float, float],
     min_confidence: float = 0.65,
     source_url: str = DEFAULT_OPEN_BUILDINGS_SOURCE_URL,
+    id_expr: str = "id",
+    height_expr: str = "height",
 ) -> str:
     """
     Constructs a DuckDB SQL statement to query building footprints within a bounding box.
@@ -50,6 +52,10 @@ def build_open_buildings_query(
         Confidence threshold [0.0, 1.0] for satellite detection reliability. Default 0.65.
     source_url : str, optional
         S3 / HTTPS URL pointing to partitioned Open Buildings GeoParquet files.
+    id_expr : str, optional
+        Column expression for identifier (default 'id').
+    height_expr : str, optional
+        Column expression for building height in meters (default 'height').
 
     Returns
     -------
@@ -59,8 +65,8 @@ def build_open_buildings_query(
     min_lon, min_lat, max_lon, max_lat = bbox
     return f"""
     SELECT 
-        id, 
-        height, 
+        {id_expr} AS id, 
+        {height_expr} AS height, 
         confidence, 
         ST_AsText(geometry) AS wkt_geom
     FROM read_parquet('{source_url}')
@@ -295,10 +301,19 @@ def fetch_open_buildings_filtered(
     output_parquet = Path(output_parquet)
     output_parquet.parent.mkdir(parents=True, exist_ok=True)
 
-    query = build_open_buildings_query(bbox=bbox, min_confidence=min_confidence, source_url=source_url)
     con = get_duckdb_spatial_connection()
-
     try:
+        desc_df = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{source_url}') LIMIT 1").df()
+        cols_avail = set(desc_df["column_name"])
+        id_expr = "CAST(boundary_id AS VARCHAR)" if "boundary_id" in cols_avail else "id"
+        height_expr = "height" if "height" in cols_avail else "NULL::DOUBLE"
+        query = build_open_buildings_query(
+            bbox=bbox,
+            min_confidence=min_confidence,
+            source_url=source_url,
+            id_expr=id_expr,
+            height_expr=height_expr,
+        )
         df = con.execute(query).df()
     except (duckdb.Error, RuntimeError, OSError, ValueError):
         df = pd.DataFrame(columns=["id", "height", "confidence", "wkt_geom"])

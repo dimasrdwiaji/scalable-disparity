@@ -36,6 +36,8 @@ def get_duckdb_spatial_connection() -> duckdb.DuckDBPyConnection:
     con.execute("INSTALL httpfs; LOAD httpfs;")
     con.execute("SET s3_region = 'us-west-2';")
     con.execute("SET s3_url_style = 'path';")
+    con.execute("SET http_retries = 5;")
+    con.execute("SET http_timeout = 60000;")
     return con
 
 
@@ -75,21 +77,23 @@ def build_overture_amenities_query(
         SELECT 
             id, 
             names.primary AS name, 
-            categories.main AS category,
-            ST_GeomFromWkb(geometry) AS geometry
+            coalesce(taxonomy.primary, basic_category) AS category,
+            geometry
         FROM read_parquet('s3://overturemaps-us-west-2/release/{release}/theme=places/type=place/*', hive_partitioning=true)
         WHERE bbox.xmin >= {min_lon} AND bbox.xmax <= {max_lon}
           AND bbox.ymin >= {min_lat} AND bbox.ymax <= {max_lat}
-          AND categories.main IN (
-              'education.school', 'healthcare.hospital', 
-              'healthcare.clinic', 'commercial.supermarket_grocery'
+          AND (
+              coalesce(taxonomy.primary, basic_category) IN (
+                  'school', 'hospital', 'clinic', 'supermarket', 'grocery_store',
+                  'education.school', 'healthcare.hospital', 'healthcare.clinic', 'commercial.supermarket_grocery'
+              )
           )
         UNION ALL
         SELECT 
             id, 
             names.primary AS name, 
             subtype AS category,
-            ST_GeomFromWkb(geometry) AS geometry
+            geometry
         FROM read_parquet('s3://overturemaps-us-west-2/release/{release}/theme=base/type=land_use/*', hive_partitioning=true)
         WHERE bbox.xmin >= {min_lon} AND bbox.xmax <= {max_lon}
           AND bbox.ymin >= {min_lat} AND bbox.ymax <= {max_lat}
@@ -133,7 +137,7 @@ def build_overture_transportation_query(
             id, 
             class, 
             subtype,
-            ST_GeomFromWkb(geometry) AS geometry
+            geometry
         FROM read_parquet('s3://overturemaps-us-west-2/release/{release}/theme=transportation/type=segment/*', hive_partitioning=true)
         WHERE bbox.xmin >= {min_lon} AND bbox.xmax <= {max_lon}
           AND bbox.ymin >= {min_lat} AND bbox.ymax <= {max_lat}
