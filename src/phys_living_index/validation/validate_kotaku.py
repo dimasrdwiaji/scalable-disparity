@@ -150,9 +150,14 @@ def evaluate_slum_binary_classification(
     fpr, tpr, roc_thresholds = roc_curve(y_true, pred_probs)
     precisions, recalls, pr_thresholds = precision_recall_curve(y_true, pred_probs)
 
-    # Find optimal threshold by F1-score
+    # Find optimal threshold by F1-score safely avoiding 0/0 division warnings
     denom = precisions + recalls
-    f1_scores = np.where(denom > 0, 2 * (precisions * recalls) / denom, 0.0)
+    f1_scores = np.divide(
+        2 * (precisions * recalls),
+        denom,
+        out=np.zeros_like(denom),
+        where=denom > 0,
+    )
     best_idx = int(np.argmax(f1_scores))
     optimal_f1 = float(f1_scores[best_idx])
     optimal_thresh = float(pr_thresholds[best_idx]) if best_idx < len(pr_thresholds) else 0.5
