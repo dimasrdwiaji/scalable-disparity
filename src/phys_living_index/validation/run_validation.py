@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 
 from .audit_bps import audit_bps_poverty_correlation, zonal_aggregate_bps
@@ -57,8 +58,16 @@ def run_dual_validation(
 
     if feature_cols is None:
         feature_cols = [
-            "r_space", "a_amenity", "lst_inv", "z_elev",
-            "ndvi", "mndwi", "bsi", "ndbi", "pm25_inv", "aqi_inv"
+            "r_space",
+            "a_amenity",
+            "lst_inv",
+            "z_elev",
+            "ndvi",
+            "mndwi",
+            "bsi",
+            "ndbi",
+            "pm25_inv",
+            "aqi_inv",
         ]
 
     # =========================================================================
@@ -148,25 +157,51 @@ def run_dual_validation(
     return summary_results
 
 
+def _format_p_value(p_val: float | None) -> str:
+    """Formats p-value into standard academic notation ($p < 0.001$ or $p = 0.XXX$)."""
+    if p_val is None or np.isnan(p_val):
+        return "N/A"
+    if p_val < 0.001:
+        return "$p < 0.001$"
+    return f"$p = {p_val:.3f}$"
+
+
 def generate_validation_markdown_table(summary: dict[str, Any]) -> str:
     """
     Generates a GitHub-flavored Markdown summary table matching manuscript Table 3.
+
+    Args:
+        summary: Dictionary containing nested results from run_dual_validation.
+
+    Returns:
+        Formatted Markdown table string.
     """
     rwi = summary.get("rwi_concordance", {})
     kotaku = summary.get("kotaku_discrimination", {})
     strat = summary.get("kotaku_severity_stratification", {})
     bps = summary.get("bps_macro_audit", {})
 
+    rwi_p_str = _format_p_value(rwi.get("pearson_p"))
+    strat_p_str = _format_p_value(strat.get("anova_p"))
+    monotonic_flag = strat.get("is_severity_monotonic", strat.get("is_monotonic_decreasing", False))
+
     lines = [
         "| Validation Benchmark | Target Construct | Metric / Statistic | Value | Statistical Significance |",
         "| :--- | :--- | :--- | :--- | :--- |",
-        f"| **Meta Relative Wealth Index (RWI)** | Continuous Asset Wealth | Pearson $r$ / Spearman $\\rho$ | {rwi.get('pearson_r', 0):.3f} / {rwi.get('spearman_rho', 0):.3f} | $p < 0.001$ ($N={rwi.get('n_samples', 'N/A')}$) |",
+        f"| **Meta Relative Wealth Index (RWI)** | Continuous Asset Wealth | Pearson $r$ / Spearman $\\rho$ | {rwi.get('pearson_r', 0):.3f} / {rwi.get('spearman_rho', 0):.3f} | {rwi_p_str} ($N={rwi.get('n_samples', 'N/A')}$) |",
         f"| **Kementerian PUPR SIM-KOTAKU** | Gazetted Informal Boundaries | ROC-AUC / PR-AUC | {kotaku.get('roc_auc', 0):.3f} / {kotaku.get('pr_auc', 0):.3f} | Optimal F1 = {kotaku.get('optimal_f1', 0):.3f} |",
-        f"| **DKI Jakarta 4-Tier Severity** | Graded In-Situ Deprivation | One-Way ANOVA $F$ | $F={strat.get('anova_f', 0):.2f}$ | $p < 0.001$ (Monotonic: {strat.get('is_monotonic_decreasing', False)}) |",
+        f"| **DKI Jakarta 4-Tier Severity** | Graded In-Situ Deprivation | One-Way ANOVA $F$ | $F={strat.get('anova_f', 0):.2f}$ | {strat_p_str} (Monotonic: {monotonic_flag}) |",
     ]
     if bps:
+        n_units = bps.get("n_units")
+        df_str = (
+            f"$df={n_units - 2}$"
+            if (isinstance(n_units, int) and n_units >= 2)
+            else "$df=\\text{N/A}$"
+        )
+        bps_p_str = _format_p_value(bps.get("p_value"))
         lines.append(
-            f"| **BPS SUSENAS Macro Audit** | Regional Poverty Headcount | OLS Correlation $r$ | {bps.get('poverty_correlation_r', 0):.3f} | $df={bps.get('n_units', 15) - 2}$ ($N={bps.get('n_units', 'N/A')}$) |"
+            f"| **BPS SUSENAS Macro Audit** | Regional Poverty Headcount | OLS Correlation $r$ | {bps.get('poverty_correlation_r', 0):.3f} | {df_str}, {bps_p_str} ($N={n_units if n_units is not None else 'N/A'}) |"
         )
     return "\n".join(lines)
 
@@ -174,17 +209,34 @@ def generate_validation_markdown_table(summary: dict[str, Any]) -> str:
 def generate_validation_latex_table(summary: dict[str, Any]) -> str:
     """
     Generates a LaTeX tabular summary matching manuscript Table 3 format.
+
+    Args:
+        summary: Dictionary containing nested results from run_dual_validation.
+
+    Returns:
+        Formatted LaTeX table code string.
     """
     rwi = summary.get("rwi_concordance", {})
     kotaku = summary.get("kotaku_discrimination", {})
     strat = summary.get("kotaku_severity_stratification", {})
     bps = summary.get("bps_macro_audit", {})
 
+    rwi_p_str = _format_p_value(rwi.get("pearson_p"))
+    strat_p_str = _format_p_value(strat.get("anova_p"))
+    monotonic_flag = strat.get("is_severity_monotonic", strat.get("is_monotonic_decreasing", False))
+
     bps_row = ""
     if bps:
+        n_units = bps.get("n_units")
+        df_str = (
+            f"$df={n_units - 2}$"
+            if (isinstance(n_units, int) and n_units >= 2)
+            else "$df=\\text{N/A}$"
+        )
+        bps_p_str = _format_p_value(bps.get("p_value"))
         bps_row = (
             f"BPS SUSENAS Macro Audit & Regional Poverty Headcount & OLS $r = {bps.get('poverty_correlation_r', 0):.3f}$ & "
-            f"$df={bps.get('n_units', 15) - 2}$ ($N={bps.get('n_units', 'N/A')}$) \\\\\n"
+            f"{df_str}, {bps_p_str} ($N={n_units if n_units is not None else 'N/A'}) \\\\\n"
         )
 
     tex = f"""\\begin{{table}}[htbp]
@@ -195,9 +247,9 @@ def generate_validation_latex_table(summary: dict[str, Any]) -> str:
 \\hline
 \\textbf{{Validation Benchmark}} & \\textbf{{Target Construct}} & \\textbf{{Key Metric}} & \\textbf{{Significance / Sample Size}} \\\\
 \\hline
-Meta Relative Wealth Index (RWI) & Continuous Asset Wealth & Pearson $r = {rwi.get('pearson_r', 0):.3f}$, $\\rho = {rwi.get('spearman_rho', 0):.3f}$ & $p < 0.001$ ($N={rwi.get('n_samples', 'N/A')}$) \\\\
-Kementerian PUPR SIM-KOTAKU & Gazetted Informal Boundaries & ROC-AUC = {kotaku.get('roc_auc', 0):.3f}, PR-AUC = {kotaku.get('pr_auc', 0):.3f} & Optimal F1 = {kotaku.get('optimal_f1', 0):.3f} \\\\
-DKI Jakarta 4-Tier Severity & Graded In-Situ Deprivation & One-Way ANOVA $F = {strat.get('anova_f', 0):.2f}$ & $p < 0.001$ (Monotonic: {strat.get('is_monotonic_decreasing', False)}) \\\\
+Meta Relative Wealth Index (RWI) & Continuous Asset Wealth & Pearson $r = {rwi.get("pearson_r", 0):.3f}$, $\\rho = {rwi.get("spearman_rho", 0):.3f}$ & {rwi_p_str} ($N={rwi.get("n_samples", "N/A")}$) \\\\
+Kementerian PUPR SIM-KOTAKU & Gazetted Informal Boundaries & ROC-AUC = {kotaku.get("roc_auc", 0):.3f}, PR-AUC = {kotaku.get("pr_auc", 0):.3f} & Optimal F1 = {kotaku.get("optimal_f1", 0):.3f} \\\\
+DKI Jakarta 4-Tier Severity & Graded In-Situ Deprivation & One-Way ANOVA $F = {strat.get("anova_f", 0):.2f}$ & {strat_p_str} (Monotonic: {monotonic_flag}) \\\\
 {bps_row}\\hline
 \\end{{tabular}}
 \\end{{table}}"""

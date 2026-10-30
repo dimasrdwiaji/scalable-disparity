@@ -29,55 +29,67 @@ def mock_pipeline_data():
     flat_lons = grid_lons.ravel()[:n]
 
     geoms = [
-        Polygon([
-            (lon - 0.005, lat - 0.005),
-            (lon + 0.005, lat - 0.005),
-            (lon + 0.005, lat + 0.005),
-            (lon - 0.005, lat + 0.005),
-            (lon - 0.005, lat - 0.005),
-        ])
+        Polygon(
+            [
+                (lon - 0.005, lat - 0.005),
+                (lon + 0.005, lat - 0.005),
+                (lon + 0.005, lat + 0.005),
+                (lon - 0.005, lat + 0.005),
+                (lon - 0.005, lat - 0.005),
+            ]
+        )
         for lat, lon in zip(flat_lats, flat_lons, strict=False)
     ]
 
-    h3_gdf = gpd.GeoDataFrame({
-        "h3_index": [f"886546{i:04d}" for i in range(n)],
-        "latitude": flat_lats,
-        "longitude": flat_lons,
-        "population": rng.uniform(500, 5000, size=n),
-        "plsi": rng.uniform(0.1, 0.9, size=n),
-        "r_space": rng.uniform(0.2, 1.5, size=n),
-        "a_amenity": rng.uniform(0.1, 0.9, size=n),
-        "z_elev": rng.uniform(0.1, 0.8, size=n),
-        "lst_inv": rng.uniform(0.2, 0.8, size=n),
-        "kabupaten_kota": ["Jakarta Pusat" if i < 20 else "Jakarta Selatan" for i in range(n)],
-        "geometry": geoms,
-    }, crs="EPSG:4326")
+    h3_gdf = gpd.GeoDataFrame(
+        {
+            "h3_index": [f"886546{i:04d}" for i in range(n)],
+            "latitude": flat_lats,
+            "longitude": flat_lons,
+            "population": rng.uniform(500, 5000, size=n),
+            "plsi": rng.uniform(0.1, 0.9, size=n),
+            "r_space": rng.uniform(0.2, 1.5, size=n),
+            "a_amenity": rng.uniform(0.1, 0.9, size=n),
+            "z_elev": rng.uniform(0.1, 0.8, size=n),
+            "lst_inv": rng.uniform(0.2, 0.8, size=n),
+            "kabupaten_kota": ["Jakarta Pusat" if i < 20 else "Jakarta Selatan" for i in range(n)],
+            "geometry": geoms,
+        },
+        crs="EPSG:4326",
+    )
 
     # Synthetic RWI points
-    rwi_df = pd.DataFrame({
-        "latitude": flat_lats[::4],
-        "longitude": flat_lons[::4],
-        "rwi": rng.normal(0.5, 0.6, size=len(flat_lats[::4])),
-        "error": rng.uniform(0.1, 0.2, size=len(flat_lats[::4])),
-    })
+    rwi_df = pd.DataFrame(
+        {
+            "latitude": flat_lats[::4],
+            "longitude": flat_lons[::4],
+            "rwi": rng.normal(0.5, 0.6, size=len(flat_lats[::4])),
+            "error": rng.uniform(0.1, 0.2, size=len(flat_lats[::4])),
+        }
+    )
 
     # Synthetic KOTAKU polygons
     kotaku_geoms = geoms[:5]
-    kotaku_gdf = gpd.GeoDataFrame({
-        "id": [f"slum_{i}" for i in range(5)],
-        "KAT_TEXT": ["Berat", "Sedang", "Sedang", "Ringan", "Sangat Ringan"],
-        "k1_a_p": [80.0, 60.0, 50.0, 30.0, 10.0],
-        "k2_b_p": [70.0, 50.0, 40.0, 20.0, 5.0],
-        "k4_d_p": [90.0, 75.0, 60.0, 40.0, 20.0],
-        "k3_a_p": [60.0, 40.0, 30.0, 15.0, 5.0],
-        "geometry": kotaku_geoms,
-    }, crs="EPSG:4326")
+    kotaku_gdf = gpd.GeoDataFrame(
+        {
+            "id": [f"slum_{i}" for i in range(5)],
+            "KAT_TEXT": ["Berat", "Sedang", "Sedang", "Ringan", "Sangat Ringan"],
+            "k1_a_p": [80.0, 60.0, 50.0, 30.0, 10.0],
+            "k2_b_p": [70.0, 50.0, 40.0, 20.0, 5.0],
+            "k4_d_p": [90.0, 75.0, 60.0, 40.0, 20.0],
+            "k3_a_p": [60.0, 40.0, 30.0, 15.0, 5.0],
+            "geometry": kotaku_geoms,
+        },
+        crs="EPSG:4326",
+    )
 
     # Synthetic BPS poverty table
-    bps_poverty_df = pd.DataFrame({
-        "kabupaten_kota": ["Jakarta Pusat", "Jakarta Selatan"],
-        "poverty_rate_pct": [3.8, 3.2],
-    })
+    bps_poverty_df = pd.DataFrame(
+        {
+            "kabupaten_kota": ["Jakarta Pusat", "Jakarta Selatan"],
+            "poverty_rate_pct": [3.8, 3.2],
+        }
+    )
 
     return h3_gdf, rwi_df, kotaku_gdf, bps_poverty_df
 

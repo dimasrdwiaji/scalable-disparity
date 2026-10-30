@@ -44,7 +44,6 @@ def compute_h3_kotaku_spatial_overlap(
         kotaku_aligned = kotaku_gdf
 
     result = h3_gdf.copy()
-    result["h3_area"] = result.geometry.area
     result["overlap_area"] = 0.0
     result["overlap_pct"] = 0.0
     result["is_slum"] = 0
@@ -58,7 +57,7 @@ def compute_h3_kotaku_spatial_overlap(
         h3_proj = result
         kotaku_proj = kotaku_aligned
 
-    h3_proj_areas = h3_proj.geometry.area
+    h3_proj_areas = pd.Series(h3_proj.geometry.area.values, index=h3_proj[h3_id_col])
 
     # Spatial intersection
     intersection = gpd.overlay(
@@ -71,15 +70,11 @@ def compute_h3_kotaku_spatial_overlap(
     if len(intersection) > 0:
         intersection["inter_area"] = intersection.geometry.area
 
-        # Aggregate intersection area per H3 cell
-        grouped_area = intersection.groupby(h3_id_col)["inter_area"].sum()
-        for h3_id, area in grouped_area.items():
-            idx = result[result[h3_id_col] == h3_id].index
-            if len(idx) > 0:
-                h3_total_area = h3_proj_areas.loc[idx[0]]
-                frac = float(area / h3_total_area) if h3_total_area > 0 else 0.0
-                result.loc[idx, "overlap_area"] = float(area)
-                result.loc[idx, "overlap_pct"] = min(1.0, frac)
+        # Vectorized aggregation of intersection area per H3 cell
+        inter_sums = intersection.groupby(h3_id_col)["inter_area"].sum()
+        result["overlap_area"] = result[h3_id_col].map(inter_sums).fillna(0.0).values
+        h3_cell_areas = result[h3_id_col].map(h3_proj_areas).fillna(1.0).values
+        result["overlap_pct"] = np.clip(result["overlap_area"] / h3_cell_areas, 0.0, 1.0)
 
         # Propagate categorical and numeric attributes from KOTAKU
         # For each cell, pick the dominant overlapping polygon's attributes
@@ -94,7 +89,6 @@ def compute_h3_kotaku_spatial_overlap(
             result[col] = result[h3_id_col].map(mapping).combine_first(result[col])
 
     result["is_slum"] = (result["overlap_pct"] >= overlap_threshold).astype(int)
-    result = result.drop(columns=["h3_area"], errors="ignore")
     return result
 
 
@@ -197,7 +191,23 @@ def evaluate_dki_severity_stratification(
     Evaluates whether continuous PLSI scores monotonically and statistically
     differentiate the official 4 severity tiers in DKI Jakarta (Pergub 90/2018).
 
-    Official Tier Order: Berat < Sedang < Ringan < Sangat Ringan.
+    Official Tier Order (increasing living standard adequacy):
+    Berat < Sedang < Ringan < Sangat Ringan.
+
+    Args:
+        h3_df: DataFrame containing continuous PLSI scores and official severity tiers.
+        plsi_col: Column name containing PLSI values.
+        severity_col: Column name containing official categorical tiers.
+
+    Returns:
+        Dictionary containing:
+          - anova_f: One-way ANOVA F-statistic
+          - anova_p: One-way ANOVA p-value
+          - kruskal_h: Kruskal-Wallis H-statistic
+          - kruskal_p: Kruskal-Wallis p-value
+          - is_severity_monotonic: True if mean(Berat) <= mean(Sedang) <= mean(Ringan) <= mean(Sangat Ringan)
+          - is_monotonic_decreasing: Alias for is_severity_monotonic (decreasing slum severity)
+          - tier_stats: Per-tier count, mean, std, and median statistics
     """
     valid = h3_df.dropna(subset=[plsi_col, severity_col]).copy()
 
@@ -212,6 +222,7 @@ def evaluate_dki_severity_stratification(
             "anova_p": float("nan"),
             "kruskal_h": float("nan"),
             "kruskal_p": float("nan"),
+            "is_severity_monotonic": False,
             "is_monotonic_decreasing": False,
             "tier_stats": {},
         }
@@ -240,6 +251,7 @@ def evaluate_dki_severity_stratification(
         "anova_p": float(f_p),
         "kruskal_h": float(k_stat),
         "kruskal_p": float(k_p),
+        "is_severity_monotonic": is_monotonic,
         "is_monotonic_decreasing": is_monotonic,
         "tier_stats": tier_stats,
     }

@@ -230,4 +230,3 @@ def compute_bivariate_local_moran(
         "p_sim": lm_bv.p_sim,
         "is_outlier": is_outlier,
     }
-

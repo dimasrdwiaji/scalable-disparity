@@ -6,7 +6,7 @@ from phys_living_index.models.ablation import run_bottleneck_ablation
 def test_run_bottleneck_ablation_dimensions():
     num_nodes = 50
     in_channels = 10
-    
+
     # Ring graph edges
     src = torch.arange(num_nodes)
     dst = (src + 1) % num_nodes

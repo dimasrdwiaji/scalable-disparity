@@ -53,9 +53,7 @@ def train_step(
     if edge_index.shape[1] > 0:
         pos_u, pos_v = edge_index[0], edge_index[1]
         pos_scores = torch.sum(z[pos_u] * z[pos_v], dim=1)
-        loss_struct = F.binary_cross_entropy_with_logits(
-            pos_scores, torch.ones_like(pos_scores)
-        )
+        loss_struct = F.binary_cross_entropy_with_logits(pos_scores, torch.ones_like(pos_scores))
     else:
         loss_struct = torch.tensor(0.0, device=x.device)
 
@@ -120,7 +118,7 @@ def train_gat_autoencoder(
         step_metrics = train_step(model, optimizer, x, edge_index, loss_weights=loss_weights)
         history.append(step_metrics)
         if verbose and (epoch + 1) % 10 == 0:
-            print(f"Epoch {epoch+1:03d} | Total Loss: {step_metrics['total_loss']:.4f}")
+            print(f"Epoch {epoch + 1:03d} | Total Loss: {step_metrics['total_loss']:.4f}")
 
     model.eval()
     with torch.no_grad():

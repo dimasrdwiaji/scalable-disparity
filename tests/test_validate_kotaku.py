@@ -22,27 +22,33 @@ def mock_spatial_data():
     poly1 = Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)])
     poly2 = Polygon([(1, 0), (2, 0), (2, 1), (1, 1), (1, 0)])
 
-    h3_gdf = gpd.GeoDataFrame({
-        "h3_index": ["hex1", "hex2"],
-        "plsi": [0.25, 0.85],
-        "r_space": [0.3, 1.2],
-        "a_amenity": [0.2, 0.9],
-        "z_elev": [0.1, 0.8],
-        "geometry": [poly1, poly2],
-    }, crs="EPSG:4326")
+    h3_gdf = gpd.GeoDataFrame(
+        {
+            "h3_index": ["hex1", "hex2"],
+            "plsi": [0.25, 0.85],
+            "r_space": [0.3, 1.2],
+            "a_amenity": [0.2, 0.9],
+            "z_elev": [0.1, 0.8],
+            "geometry": [poly1, poly2],
+        },
+        crs="EPSG:4326",
+    )
 
     # Create a slum polygon overlapping heavily with hex1 (area 0.5 in hex1, 0.0 in hex2)
     slum_poly = Polygon([(0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8), (0.2, 0.2)])
-    kotaku_gdf = gpd.GeoDataFrame({
-        "id": ["slum_1"],
-        "KAT_TEXT": ["Sedang"],
-        "KAT_NUM": [3],
-        "k1_a_p": [65.0],
-        "k2_b_p": [40.0],
-        "k4_d_p": [80.0],
-        "k3_a_p": [50.0],
-        "geometry": [slum_poly],
-    }, crs="EPSG:4326")
+    kotaku_gdf = gpd.GeoDataFrame(
+        {
+            "id": ["slum_1"],
+            "KAT_TEXT": ["Sedang"],
+            "KAT_NUM": [3],
+            "k1_a_p": [65.0],
+            "k2_b_p": [40.0],
+            "k4_d_p": [80.0],
+            "k3_a_p": [50.0],
+            "geometry": [slum_poly],
+        },
+        crs="EPSG:4326",
+    )
 
     return h3_gdf, kotaku_gdf
 
@@ -80,20 +86,38 @@ def test_evaluate_slum_binary_classification():
 
 
 def test_evaluate_dki_severity_stratification():
-    df = pd.DataFrame({
-        "plsi": [
-            0.15, 0.18, 0.20,  # Berat
-            0.35, 0.38, 0.40,  # Sedang
-            0.55, 0.58, 0.60,  # Ringan
-            0.75, 0.78, 0.80,  # Sangat Ringan
-        ],
-        "KAT_TEXT": [
-            "Berat", "Berat", "Berat",
-            "Sedang", "Sedang", "Sedang",
-            "Ringan", "Ringan", "Ringan",
-            "Sangat Ringan", "Sangat Ringan", "Sangat Ringan",
-        ],
-    })
+    df = pd.DataFrame(
+        {
+            "plsi": [
+                0.15,
+                0.18,
+                0.20,  # Berat
+                0.35,
+                0.38,
+                0.40,  # Sedang
+                0.55,
+                0.58,
+                0.60,  # Ringan
+                0.75,
+                0.78,
+                0.80,  # Sangat Ringan
+            ],
+            "KAT_TEXT": [
+                "Berat",
+                "Berat",
+                "Berat",
+                "Sedang",
+                "Sedang",
+                "Sedang",
+                "Ringan",
+                "Ringan",
+                "Ringan",
+                "Sangat Ringan",
+                "Sangat Ringan",
+                "Sangat Ringan",
+            ],
+        }
+    )
 
     res = evaluate_dki_severity_stratification(df, plsi_col="plsi", severity_col="KAT_TEXT")
 
@@ -106,12 +130,14 @@ def test_evaluate_dki_severity_stratification():
 
 def test_evaluate_kotaku_subdimension_concordance():
     # Lower living space & accessibility -> higher KOTAKU defect percentages
-    df = pd.DataFrame({
-        "r_space": [0.2, 0.4, 0.6, 0.8, 1.0],
-        "a_amenity": [0.1, 0.3, 0.5, 0.7, 0.9],
-        "k1_a_p": [90.0, 70.0, 50.0, 30.0, 10.0],
-        "k2_b_p": [85.0, 65.0, 45.0, 25.0, 5.0],
-    })
+    df = pd.DataFrame(
+        {
+            "r_space": [0.2, 0.4, 0.6, 0.8, 1.0],
+            "a_amenity": [0.1, 0.3, 0.5, 0.7, 0.9],
+            "k1_a_p": [90.0, 70.0, 50.0, 30.0, 10.0],
+            "k2_b_p": [85.0, 65.0, 45.0, 25.0, 5.0],
+        }
+    )
 
     concordance = evaluate_kotaku_subdimension_concordance(
         df,

@@ -10,7 +10,7 @@ from scipy.spatial import cKDTree
 from scipy.stats import pearsonr, spearmanr
 
 
-def correlate_with_rwi(plsi_values: np.ndarray, rwi_values: np.ndarray) -> dict[str, float]:
+def correlate_with_rwi(plsi_values: np.ndarray, rwi_values: np.ndarray) -> dict[str, float | int]:
     """
     Computes Pearson, Spearman rank correlation, and coefficient of determination (R^2)
     between unsupervised PLSI and Meta RWI.
@@ -96,14 +96,18 @@ def match_h3_to_rwi_grid(
     m_per_deg_lat = 111132.954
     m_per_deg_lon = 111132.954 * cos_lat
 
-    rwi_coords_m = np.column_stack([
-        rwi_df[rwi_lon_col] * m_per_deg_lon,
-        rwi_df[rwi_lat_col] * m_per_deg_lat,
-    ])
-    h3_coords_m = np.column_stack([
-        h3_df[h3_lon_col] * m_per_deg_lon,
-        h3_df[h3_lat_col] * m_per_deg_lat,
-    ])
+    rwi_coords_m = np.column_stack(
+        [
+            rwi_df[rwi_lon_col] * m_per_deg_lon,
+            rwi_df[rwi_lat_col] * m_per_deg_lat,
+        ]
+    )
+    h3_coords_m = np.column_stack(
+        [
+            h3_df[h3_lon_col] * m_per_deg_lon,
+            h3_df[h3_lat_col] * m_per_deg_lat,
+        ]
+    )
 
     tree = cKDTree(rwi_coords_m)
     distances_m, indices = tree.query(h3_coords_m, k=1)

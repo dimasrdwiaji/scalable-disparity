@@ -60,12 +60,12 @@ def test_train_gat_autoencoder_convergence():
     src = torch.arange(num_nodes)
     dst = (src + 1) % num_nodes
     edge_index = torch.stack([torch.cat([src, dst]), torch.cat([dst, src])], dim=0)
-    
+
     # Smooth synthetic feature matrix
     x = torch.rand((num_nodes, in_channels))
 
     model = SpatialGATAutoencoder(in_channels=in_channels, hidden_dim=16, latent_dim=latent_dim)
-    
+
     history, z_final, x_hat_final = train_gat_autoencoder(
         model=model,
         x=x,
@@ -105,4 +105,3 @@ def test_attributed_error_decomposition_and_edge_friction():
     assert edge_fric.shape == (2,)
     assert edge_fric[0].item() == pytest.approx(1.0 - 0.7)  # mean(0.8, 0.6) = 0.7 -> fric = 0.3
     assert edge_fric[1].item() == pytest.approx(1.0 - 0.2)  # mean(0.1, 0.3) = 0.2 -> fric = 0.8
-

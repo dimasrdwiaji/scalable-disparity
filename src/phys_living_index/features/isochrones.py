@@ -220,7 +220,11 @@ def compute_amenity_accessibility(
     adj_matrix = build_network_adjacency_matrix(num_nodes, edges_df, undirected=True)
 
     # Extract coordinates for hex centroids and POIs
-    hex_centroids = hex_gdf.geometry.centroid if hex_gdf.geometry.iloc[0].geom_type != "Point" else hex_gdf.geometry
+    hex_centroids = (
+        hex_gdf.geometry.centroid
+        if hex_gdf.geometry.iloc[0].geom_type != "Point"
+        else hex_gdf.geometry
+    )
     hex_coords = np.column_stack([hex_centroids.x, hex_centroids.y])
     poi_coords = np.column_stack([poi_gdf.geometry.x, poi_gdf.geometry.y])
 
@@ -247,4 +251,3 @@ def compute_walking_isochrones(
     Backward-compatible wrapper for walking isochrones.
     """
     return hex_centroids
-

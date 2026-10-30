@@ -25,23 +25,27 @@ def mock_rwi_and_h3_data():
     rwi_lats = np.linspace(-6.3, -6.1, 5)
     rwi_lons = np.linspace(106.7, 106.9, 5)
     grid_lats, grid_lons = np.meshgrid(rwi_lats, rwi_lons)
-    rwi_df = pd.DataFrame({
-        "latitude": grid_lats.ravel(),
-        "longitude": grid_lons.ravel(),
-        "rwi": rng.normal(0.2, 0.8, size=n_rwi),
-        "error": rng.uniform(0.1, 0.3, size=n_rwi),
-    })
+    rwi_df = pd.DataFrame(
+        {
+            "latitude": grid_lats.ravel(),
+            "longitude": grid_lons.ravel(),
+            "rwi": rng.normal(0.2, 0.8, size=n_rwi),
+            "error": rng.uniform(0.1, 0.3, size=n_rwi),
+        }
+    )
 
     # Mock H3 data (finer centroids)
-    h3_df = pd.DataFrame({
-        "h3_index": [f"886546{i:04d}" for i in range(n_h3)],
-        "latitude": rng.uniform(-6.3, -6.1, size=n_h3),
-        "longitude": rng.uniform(106.7, 106.9, size=n_h3),
-        "plsi": rng.uniform(0.1, 0.9, size=n_h3),
-        "r_space": rng.uniform(0.2, 1.5, size=n_h3),
-        "a_amenity": rng.uniform(0.1, 0.8, size=n_h3),
-        "lst_inv": rng.uniform(0.3, 0.9, size=n_h3),
-    })
+    h3_df = pd.DataFrame(
+        {
+            "h3_index": [f"886546{i:04d}" for i in range(n_h3)],
+            "latitude": rng.uniform(-6.3, -6.1, size=n_h3),
+            "longitude": rng.uniform(106.7, 106.9, size=n_h3),
+            "plsi": rng.uniform(0.1, 0.9, size=n_h3),
+            "r_space": rng.uniform(0.2, 1.5, size=n_h3),
+            "a_amenity": rng.uniform(0.1, 0.8, size=n_h3),
+            "lst_inv": rng.uniform(0.3, 0.9, size=n_h3),
+        }
+    )
 
     return h3_df, rwi_df
 
@@ -79,10 +83,12 @@ def test_match_h3_to_rwi_grid(mock_rwi_and_h3_data):
 
 
 def test_classify_4quadrant_divergence():
-    df = pd.DataFrame({
-        "plsi": [0.9, 0.8, 0.2, 0.1],  # 2 high, 2 low
-        "rwi": [1.5, -0.5, 1.2, -1.0],  # high, low, high, low
-    })
+    df = pd.DataFrame(
+        {
+            "plsi": [0.9, 0.8, 0.2, 0.1],  # 2 high, 2 low
+            "rwi": [1.5, -0.5, 1.2, -1.0],  # high, low, high, low
+        }
+    )
     classified = classify_4quadrant_divergence(df, rwi_col="rwi", plsi_col="plsi")
 
     assert "quadrant" in classified.columns
@@ -101,14 +107,18 @@ def test_classify_4quadrant_divergence():
 
 
 def test_profile_quadrant_deficits():
-    df = pd.DataFrame({
-        "quadrant": [
-            "Q1_Concordant_Affluent", "Q1_Concordant_Affluent",
-            "Q3_Asset_Rich_Physically_Deprived", "Q3_Asset_Rich_Physically_Deprived"
-        ],
-        "r_space": [1.5, 1.3, 0.3, 0.4],
-        "lst_inv": [0.8, 0.9, 0.3, 0.4],
-    })
+    df = pd.DataFrame(
+        {
+            "quadrant": [
+                "Q1_Concordant_Affluent",
+                "Q1_Concordant_Affluent",
+                "Q3_Asset_Rich_Physically_Deprived",
+                "Q3_Asset_Rich_Physically_Deprived",
+            ],
+            "r_space": [1.5, 1.3, 0.3, 0.4],
+            "lst_inv": [0.8, 0.9, 0.3, 0.4],
+        }
+    )
     profiles = profile_quadrant_deficits(df, feature_cols=["r_space", "lst_inv"])
 
     assert "Q1_Concordant_Affluent" in profiles
@@ -118,15 +128,17 @@ def test_profile_quadrant_deficits():
 
 
 def test_extract_divergence_outliers():
-    df = pd.DataFrame({
-        "h3_index": ["hex1", "hex2", "hex3"],
-        "divergence_z": [2.5, -0.2, -2.1],
-        "quadrant": [
-            "Q3_Asset_Rich_Physically_Deprived",
-            "Q1_Concordant_Affluent",
-            "Q2_Rural_Well_Serviced"
-        ],
-    })
+    df = pd.DataFrame(
+        {
+            "h3_index": ["hex1", "hex2", "hex3"],
+            "divergence_z": [2.5, -0.2, -2.1],
+            "quadrant": [
+                "Q3_Asset_Rich_Physically_Deprived",
+                "Q1_Concordant_Affluent",
+                "Q2_Rural_Well_Serviced",
+            ],
+        }
+    )
     outliers = extract_divergence_outliers(df, threshold=1.5)
     assert len(outliers) == 2
     assert "hex1" in outliers["h3_index"].values

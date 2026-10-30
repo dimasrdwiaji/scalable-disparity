@@ -17,7 +17,10 @@ def test_build_worldpop_request():
     assert req["bbox"] == (106.8, -6.3, 107.0, -6.1)
     assert req["country_iso"] == "IDN"
     assert req["year"] == 2020
-    assert "https://data.worldpop.org/GIS/Population/Individual_countries/IDN/idn_ppp_2020_UNadj.tif" in str(req["url"])
+    assert (
+        "https://data.worldpop.org/GIS/Population/Individual_countries/IDN/idn_ppp_2020_UNadj.tif"
+        in str(req["url"])
+    )
 
 
 @pytest.mark.integration
