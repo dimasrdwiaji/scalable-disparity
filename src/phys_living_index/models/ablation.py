@@ -81,9 +81,7 @@ def run_bottleneck_ablation(
         if edge_index.shape[1] > 0:
             pos_scores = torch.sum(z[pos_u] * z[pos_v], dim=1)
             bce = float(
-                F.binary_cross_entropy_with_logits(
-                    pos_scores, torch.ones_like(pos_scores)
-                ).item()
+                F.binary_cross_entropy_with_logits(pos_scores, torch.ones_like(pos_scores)).item()
             )
         else:
             bce = 0.0
@@ -102,13 +100,15 @@ def run_bottleneck_ablation(
         else:
             sil_score = float("nan")
 
-        results.append({
-            "latent_dim": d,
-            "mse_recon": mse,
-            "bce_struct": bce,
-            "num_clusters": num_clusters,
-            "noise_ratio": stats.get("noise_ratio", 0.0),
-            "silhouette_score": sil_score,
-        })
+        results.append(
+            {
+                "latent_dim": d,
+                "mse_recon": mse,
+                "bce_struct": bce,
+                "num_clusters": num_clusters,
+                "noise_ratio": stats.get("noise_ratio", 0.0),
+                "silhouette_score": sil_score,
+            }
+        )
 
     return results

@@ -49,12 +49,15 @@ def test_live_overture_amenities_small_sub_bbox(tmp_path):
     # Small sub-bbox near Central Jakarta (Monas area)
     bbox = (106.82, -6.18, 106.83, -6.17)
     out_file = tmp_path / "monas_amenities.parquet"
-    
+
     result_path = fetch_overture_amenities(bbox, out_file)
     assert result_path.exists()
-    
+
     import duckdb
+
     con = duckdb.connect()
-    count = con.execute(f"SELECT COUNT(*) FROM read_parquet('{result_path.as_posix()}')").fetchone()[0]
+    count = con.execute(
+        f"SELECT COUNT(*) FROM read_parquet('{result_path.as_posix()}')"
+    ).fetchone()[0]
     con.close()
     assert count > 0  # valid execution with nonzero rows

@@ -267,4 +267,3 @@ class SpatialGATAutoencoder(nn.Module):
             mean_alpha = alpha
         edge_friction = 1.0 - mean_alpha
         return edge_index, edge_friction
-

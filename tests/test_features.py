@@ -22,9 +22,9 @@ def test_winsorize_series():
     data = np.arange(1.0, 101.0)
     data[-1] = 10000.0  # extreme spike
     series = pd.Series(data)
-    
+
     winsorized = winsorize_series(series, percentile=95.0)
-    
+
     # 95th percentile of 1..100 with 10000
     p95 = np.percentile(data, 95.0)
     assert winsorized.max() == pytest.approx(p95)
@@ -36,25 +36,27 @@ def test_compute_living_space_ratio_winsorized():
     # 2 buildings in 2 hexes
     # hex 0: normal building 90 m2, 10 people -> 9 m2/capita -> ratio = 1.0
     # hex 1: commercial high-rise 9000 m2, 1 person -> 9000 m2/capita -> extreme outlier
-    buildings_gdf = gpd.GeoDataFrame({
-        "h3_index": ["hex_norm", "hex_outlier"],
-        "height": [3.0, 30.0],  # 1 floor, 10 floors
-        "geometry": [
-            Polygon([(0, 0), (0, 9.48), (9.48, 9.48), (9.48, 0)]),  # ~90 m2
-            Polygon([(0, 0), (0, 30), (30, 30), (30, 0)]),  # 900 m2 * 10 floors = 9000 m2
-        ]
-    })
+    buildings_gdf = gpd.GeoDataFrame(
+        {
+            "h3_index": ["hex_norm", "hex_outlier"],
+            "height": [3.0, 30.0],  # 1 floor, 10 floors
+            "geometry": [
+                Polygon([(0, 0), (0, 9.48), (9.48, 9.48), (9.48, 0)]),  # ~90 m2
+                Polygon([(0, 0), (0, 30), (30, 30), (30, 0)]),  # 900 m2 * 10 floors = 9000 m2
+            ],
+        }
+    )
     pop = pd.Series({"hex_norm": 10.0, "hex_outlier": 1.0})
-    
+
     # Compute with winsorize_p99=True
     r_space = compute_living_space_ratio(
-        buildings_gdf, 
-        pop, 
-        min_standard_m2=9.0, 
+        buildings_gdf,
+        pop,
+        min_standard_m2=9.0,
         floor_height_m=3.0,
         winsorize_p99=True,
     )
-    
+
     assert isinstance(r_space, pd.Series)
     assert r_space["hex_norm"] == pytest.approx(1.0, rel=1e-2)
     # The outlier should be capped by p99
@@ -64,7 +66,7 @@ def test_compute_living_space_ratio_winsorized():
 def test_compute_economic_energy_radiance():
     viirs = pd.Series({"hex1": 10.0, "hex2": 500.0})
     pop = pd.Series({"hex1": 100.0, "hex2": 1.0})
-    
+
     e_night = compute_economic_energy_radiance(viirs, pop, winsorize_p99=True)
     assert isinstance(e_night, pd.Series)
     assert len(e_night) == 2
@@ -75,21 +77,36 @@ def test_build_10d_feature_matrix_all_channels():
     # Create synthetic dataframe with all 10 raw channels for 5 hexes
     n_hexes = 5
     hex_ids = [f"hex_{i}" for i in range(n_hexes)]
-    raw_df = pd.DataFrame({
-        "space_sufficiency_ratio": [0.5, 1.0, 2.0, 5.0, 10.0],
-        "builtup_ndbi": [-0.5, -0.2, 0.0, 0.3, 0.7],
-        "cumulative_amenities_15m": [0, 5, 15, 30, 60],
-        "bare_soil_bsi": [-0.2, 0.0, 0.2, 0.4, 0.8],
-        "nighttime_energy_radiance": [1.0, 5.0, 15.0, 30.0, 80.0],
-        "vegetation_ndvi": [0.0, 0.2, 0.4, 0.6, 0.8],
-        "thermal_comfort_lst_inv": [315.0, 310.0, 305.0, 300.0, 295.0],  # higher K is hotter, inverted should be higher for cooler
-        "water_mndwi": [-0.5, -0.2, 0.0, 0.2, 0.5],
-        "air_purity_pm25_inv": [80.0, 50.0, 35.0, 20.0, 10.0],  # higher ug/m3 is dirtier, inverted should be higher for cleaner
-        "multi_pollutant_aqi_inv": [200.0, 150.0, 100.0, 50.0, 20.0],
-    }, index=hex_ids)
-    
+    raw_df = pd.DataFrame(
+        {
+            "space_sufficiency_ratio": [0.5, 1.0, 2.0, 5.0, 10.0],
+            "builtup_ndbi": [-0.5, -0.2, 0.0, 0.3, 0.7],
+            "cumulative_amenities_15m": [0, 5, 15, 30, 60],
+            "bare_soil_bsi": [-0.2, 0.0, 0.2, 0.4, 0.8],
+            "nighttime_energy_radiance": [1.0, 5.0, 15.0, 30.0, 80.0],
+            "vegetation_ndvi": [0.0, 0.2, 0.4, 0.6, 0.8],
+            "thermal_comfort_lst_inv": [
+                315.0,
+                310.0,
+                305.0,
+                300.0,
+                295.0,
+            ],  # higher K is hotter, inverted should be higher for cooler
+            "water_mndwi": [-0.5, -0.2, 0.0, 0.2, 0.5],
+            "air_purity_pm25_inv": [
+                80.0,
+                50.0,
+                35.0,
+                20.0,
+                10.0,
+            ],  # higher ug/m3 is dirtier, inverted should be higher for cleaner
+            "multi_pollutant_aqi_inv": [200.0, 150.0, 100.0, 50.0, 20.0],
+        },
+        index=hex_ids,
+    )
+
     X = build_10d_feature_matrix(raw_df)
-    
+
     assert X.shape == (n_hexes, 10)
     assert np.all(X >= 0.0)
     assert np.all(X <= 1.0)
@@ -98,10 +115,12 @@ def test_build_10d_feature_matrix_all_channels():
 
 
 def test_normalize_feature_matrix_bounds():
-    df = pd.DataFrame({
-        "feat1": [1.0, 5.0, 10.0],
-        "feat2": [-5.0, 0.0, 5.0],
-    })
+    df = pd.DataFrame(
+        {
+            "feat1": [1.0, 5.0, 10.0],
+            "feat2": [-5.0, 0.0, 5.0],
+        }
+    )
     benchmarks = {
         "feat1": (0.0, 10.0),
         "feat2": (-10.0, 10.0),
@@ -167,4 +186,3 @@ def test_bivariate_local_moran_baseline():
     assert "p_sim" in lisa
     assert "is_outlier" in lisa
     assert len(lisa["Is"]) == n
-

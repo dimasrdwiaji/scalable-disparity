@@ -55,11 +55,13 @@ def test_derive_floor_count_height_only():
 
 def test_derive_floor_count_explicit_attributes():
     # When explicit floor attributes exist, they must take precedence over height
-    df = pd.DataFrame({
-        "id": ["b1", "b2", "b3"],
-        "height": [10.0, 15.0, 30.0],
-        "num_floors": [4, 6, np.nan],  # b1 has 4 floors, b2 has 6 floors, b3 missing
-    })
+    df = pd.DataFrame(
+        {
+            "id": ["b1", "b2", "b3"],
+            "height": [10.0, 15.0, 30.0],
+            "num_floors": [4, 6, np.nan],  # b1 has 4 floors, b2 has 6 floors, b3 missing
+        }
+    )
     floors = derive_floor_count(df)
     # b1: explicit 4; b2: explicit 6; b3: derived from height 30/3 = 10
     assert list(floors) == [4, 6, 10]
@@ -67,11 +69,13 @@ def test_derive_floor_count_explicit_attributes():
 
 def test_derive_floor_count_subtype_stratification():
     # Test commercial vs residential international GHSL benchmarks
-    df = pd.DataFrame({
-        "id": ["res1", "comm1"],
-        "height": [18.0, 18.0],
-        "subtype": ["residential", "commercial"],
-    })
+    df = pd.DataFrame(
+        {
+            "id": ["res1", "comm1"],
+            "height": [18.0, 18.0],
+            "subtype": ["residential", "commercial"],
+        }
+    )
     floors = derive_floor_count(df)
     # res1: 18 / 3.0 = 6 floors
     # comm1: 18 / 3.6 = 5 floors
@@ -104,7 +108,15 @@ def test_intersect_residential_raster_mask(tmp_path):
     transform = rasterio.transform.from_bounds(0.0, 0.0, 2.0, 2.0, 2, 2)
     data = np.array([[1, 0], [0, 0]], dtype=np.uint8)
     with rasterio.open(
-        mask_tif, "w", driver="GTiff", height=2, width=2, count=1, dtype="uint8", crs="EPSG:4326", transform=transform
+        mask_tif,
+        "w",
+        driver="GTiff",
+        height=2,
+        width=2,
+        count=1,
+        dtype="uint8",
+        crs="EPSG:4326",
+        transform=transform,
     ) as dst:
         dst.write(data, 1)
 

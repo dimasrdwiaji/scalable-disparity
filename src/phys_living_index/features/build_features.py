@@ -24,16 +24,16 @@ import pandas as pd
 
 # The 10 canonical feature channels for the Physical Living Standard Index (PLSI)
 FEATURE_DIMENSIONS_10D: list[str] = [
-    "space_sufficiency_ratio",    # 1. Living Space Ratio
-    "builtup_ndbi",               # 2. Built-up Density (NDBI)
-    "cumulative_amenities_15m",   # 3. 15-Minute Walking Opportunities
-    "bare_soil_bsi",              # 4. Bare Soil / Dirt Roads (BSI)
+    "space_sufficiency_ratio",  # 1. Living Space Ratio
+    "builtup_ndbi",  # 2. Built-up Density (NDBI)
+    "cumulative_amenities_15m",  # 3. 15-Minute Walking Opportunities
+    "bare_soil_bsi",  # 4. Bare Soil / Dirt Roads (BSI)
     "nighttime_energy_radiance",  # 5. Economic Radiance per Capita
-    "vegetation_ndvi",            # 6. Environmental Canopy (NDVI)
-    "thermal_comfort_lst_inv",    # 7. Inverted Thermal Comfort (LST)
-    "water_mndwi",                # 8. Drainage / Water Exposure (MNDWI)
-    "air_purity_pm25_inv",        # 9. Inverted Fine Particulates (PM2.5)
-    "multi_pollutant_aqi_inv",    # 10. Inverted Multi-Pollutant AQI
+    "vegetation_ndvi",  # 6. Environmental Canopy (NDVI)
+    "thermal_comfort_lst_inv",  # 7. Inverted Thermal Comfort (LST)
+    "water_mndwi",  # 8. Drainage / Water Exposure (MNDWI)
+    "air_purity_pm25_inv",  # 9. Inverted Fine Particulates (PM2.5)
+    "multi_pollutant_aqi_inv",  # 10. Inverted Multi-Pollutant AQI
 ]
 
 # Default international benchmark ranges for universal Min-Max scaling to [0.0, 1.0]
@@ -256,7 +256,6 @@ def build_10d_feature_matrix(
         feature_cols=FEATURE_DIMENSIONS_10D,
         benchmarks=benchmarks,
     )
-
 
 
 def assemble_h3_features(

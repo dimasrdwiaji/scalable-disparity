@@ -17,6 +17,7 @@ def zonal_aggregate_bps(
     Computes population-weighted mean PLSI and internal spatial Gini per BPS administrative boundary:
     Mean_PLSI_k = sum(PLSI_i * Pop_i) / sum(Pop_i)
     """
+
     def _pop_weighted_mean(group):
         weights = group[pop_col]
         values = group[plsi_col]
