@@ -222,8 +222,18 @@ def intersect_residential_mask(
 
         if mask_path.suffix.lower() in [".tif", ".tiff"]:
             with rasterio.open(mask_path) as src:
-                # Sample raster at building centroids
-                centroids = buildings_gdf.geometry.centroid
+                # Sample raster at building centroids projected into raster coordinate space
+                if buildings_gdf.crs != src.crs:
+                    b_proj = buildings_gdf.to_crs(src.crs)
+                else:
+                    b_proj = buildings_gdf
+
+                if b_proj.crs and b_proj.crs.is_geographic:
+                    # Use planar UTM 48S for planar centroid then project to raster CRS
+                    centroids = buildings_gdf.to_crs(epsg=32748).geometry.centroid.to_crs(src.crs)
+                else:
+                    centroids = b_proj.geometry.centroid
+
                 coords = [(c.x, c.y) for c in centroids]
                 sampled = list(src.sample(coords))
                 values = np.array([s[0] for s in sampled])

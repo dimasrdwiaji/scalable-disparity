@@ -64,5 +64,5 @@ filterwarnings = [
     "ignore::DeprecationWarning:torch_geometric.*",
     "ignore::DeprecationWarning:esda.*",
     "ignore::FutureWarning:torch.jit.*",
-    "ignore:Geometry is in a geographic CRS:UserWarning",
+    "error:Geometry is in a geographic CRS.*:UserWarning",
 ]

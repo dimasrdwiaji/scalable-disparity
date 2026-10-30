@@ -14,6 +14,10 @@ with suppress(Exception):
     os.environ["PROJ_DATA"] = _proj_dir
 
 from .credentials import load_earthdata_token
+from .esri_converter import (
+    convert_esri_featureset_to_geojson,
+    convert_esri_rings_to_geojson_polygon,
+)
 from .ingest_buildings import (
     build_open_buildings_query,
     derive_floor_count,
@@ -60,6 +64,8 @@ __all__ = [
     "compute_mndwi",
     "compute_ndbi",
     "compute_ndvi",
+    "convert_esri_featureset_to_geojson",
+    "convert_esri_rings_to_geojson_polygon",
     "derive_floor_count",
     "extract_landsat_lst",
     "fetch_environmental_layers",
