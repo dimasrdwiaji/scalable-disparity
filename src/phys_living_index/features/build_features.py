@@ -1,284 +1,366 @@
 """
-Harmonizes and standardizes physical living standard features onto Uber H3 Resolution 8 cells (~0.74 km²).
+Scales physical living standard indicators on H3 Resolution 8 cells into the feature matrix X.
 
-This module prepares the continuous multi-dimensional feature matrix X in R^(N x 10)
-for the Graph Attention Autoencoder (GAT-AE).
+Implements ADR 0003:
+1. Universal frozen benchmarks: every channel is mapped to [0, 1] between bounds read from a
+   versioned benchmark file (configs/benchmarks/benchmarks_<version>.yaml). Bounds are never
+   computed from the study area, so a scaled value means the same thing in every region.
+2. Transforms before scaling: `log1p` for heavy-tailed counts (amenities, radiance).
+3. Orientation: `positive` channels keep their direction, `inverted` hazard channels
+   (bare soil, excess heat, PM2.5, NO2) become 1 - x so higher is better, and `context`
+   channels (built-up, vegetation, water) carry no better/worse direction.
+4. Clipping at the frozen bounds replaces P99 winsorization; the share of residential cells
+   clipped at each bound is reported, and a region above `clip_flag_share` is flagged as
+   outside the reference distribution, never re-tuned.
 
-It implements:
-1. Universal Min-Max Normalization: Maps diverse physical indicators (meters, Kelvin,
-   nW/cm²/sr, μg/m³, spectral indices) into a standardized [0.0, 1.0] interval.
-2. Inverted Hazard Scaling: Transforms environmental stress metrics (heat, air pollution)
-   so that higher values uniformly signify better living standards across all feature channels.
-3. 99th Percentile (P99) Winsorization: Mitigates denominator artifacts in commercial CBDs
-   where near-zero resident populations produce false astronomical per-capita living space.
-4. 10-Dimensional Feature Matrix Assembly: Incorporates living space sufficiency, built-up
-   density, pedestrian accessibility, infrastructure paving, nighttime light, vegetative canopy,
-   thermal comfort, drainage exposure, fine particulates, and multi-pollutant air quality.
+Raw inputs keep authentic physical units (CLAUDE.md); scaling happens only here.
 """
 
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-import geopandas as gpd
 import numpy as np
 import pandas as pd
+import yaml
 
-# The 10 canonical feature channels for the Physical Living Standard Index (PLSI)
+TRANSFORMS = ("none", "log1p")
+ORIENTATIONS = ("positive", "inverted", "context")
+FRICTION_GROUPS = ("socio", "bio")
+
+# The lean, orthogonal 7-channel physical disparity feature dimensions (Revision 5)
+FEATURE_DIMENSIONS_7D: list[str] = [
+    "space_sufficiency_ratio",        # 1. Living Space Sufficiency Ratio (3D JRC GHS-BUILT-V) [socio]
+    "residential_plan_area_fraction", # 2. Residential Plan Area Fraction (Ground Crowding on GHS Mask) [socio]
+    "building_compactness",           # 3. Building Footprint Compactness (Morphological Regularity) [socio]
+    "cumulative_amenities_15m",       # 4. 15-Minute Walking Accessibility (Overture/OSM) [socio]
+    "vegetation_ndvi",                # 5. Vegetation Luxury Effect (Sentinel-2 NDVI) [bio]
+    "heat_island_intensity_inv",      # 6. Inverted Surface Urban Heat Island (Landsat ΔLST) [bio]
+    "terrain_safety_inv",             # 7. Topographic Slope Safety (Copernicus DEM 30m) [bio]
+]
+FEATURE_DIMENSIONS = FEATURE_DIMENSIONS_7D
+
+# The legacy 10 canonical feature channels for backwards compatibility
 FEATURE_DIMENSIONS_10D: list[str] = [
     "space_sufficiency_ratio",    # 1. Living Space Ratio
     "builtup_ndbi",               # 2. Built-up Density (NDBI)
     "cumulative_amenities_15m",   # 3. 15-Minute Walking Opportunities
     "bare_soil_bsi",              # 4. Bare Soil / Dirt Roads (BSI)
-    "nighttime_energy_radiance",  # 5. Economic Radiance per Capita
-    "vegetation_ndvi",            # 6. Environmental Canopy (NDVI)
-    "thermal_comfort_lst_inv",    # 7. Inverted Thermal Comfort (LST)
-    "water_mndwi",                # 8. Drainage / Water Exposure (MNDWI)
+    "nighttime_energy_radiance",  # 5. Night-time Radiance
+    "vegetation_ndvi",            # 6. Vegetation (NDVI)
+    "heat_island_intensity_inv",  # 7. Inverted Heat Island Intensity (ΔLST)
+    "water_frequency",            # 8. Surface Water Frequency
     "air_purity_pm25_inv",        # 9. Inverted Fine Particulates (PM2.5)
-    "multi_pollutant_aqi_inv",    # 10. Inverted Multi-Pollutant AQI
+    "no2_inv",                    # 10. Inverted Tropospheric NO2
 ]
 
-# Default international benchmark ranges for universal Min-Max scaling to [0.0, 1.0]
-# Note: For features subject to commercial or informal high-density clustering (e.g. cumulative amenities,
-# living floor area per capita, energy radiance), empirical P99 winsorization is recommended
-# rather than rigid hard-coded ceilings.
-DEFAULT_10D_BENCHMARKS: dict[str, tuple[float, float]] = {
-    # 1. Living Space Ratio: 1.0 = UN-Habitat 9.0 m²/capita standard; capped at 5.0 (45 m²/capita)
-    "space_sufficiency_ratio": (0.0, 5.0),
-    # 2. Built-up Roof Density (NDBI): [-1.0, 1.0] true spectral range
-    "builtup_ndbi": (-1.0, 1.0),
-    # 3. 15-Minute Walking Opportunities: cumulative destination count (0 to 300+ amenities accommodating dense retail/SMEs)
-    "cumulative_amenities_15m": (0.0, 300.0),
-    # 4. Bare Soil / Unpaved Roads (BSI): [-1.0, 1.0] true spectral range
-    "bare_soil_bsi": (-1.0, 1.0),
-    # 5. Nighttime Energy Radiance (VIIRS): [0.0, 50.0] nW/cm²/sr
-    "nighttime_energy_radiance": (0.0, 50.0),
-    # 6. Vegetative Canopy (NDVI): [-0.2, 0.8] representing terrestrial urban canopy
-    "vegetation_ndvi": (-0.2, 0.8),
-    # 7. Thermal Comfort (LST Inverted): [290.0, 320.0] Kelvin (higher = cooler microclimate)
-    "thermal_comfort_lst_inv": (290.0, 320.0),
-    # 8. Surface Water & Drainage Vulnerability (MNDWI): [-1.0, 1.0] true spectral range
-    "water_mndwi": (-1.0, 1.0),
-    # 9. Fine Particulate Air Purity (PM2.5 Inverted): [0.0, 100.0] μg/m³ (WHO target: 15.0 μg/m³)
-    "air_purity_pm25_inv": (0.0, 100.0),
-    # 10. Multi-Pollutant Air Purity (AQI Inverted): [0.0, 300.0] (higher = cleaner regulatory air)
-    "multi_pollutant_aqi_inv": (0.0, 300.0),
-}
 
-# Features where higher raw values indicate environmental hazard/heat/pollution and must be inverted
-INVERTED_HAZARD_CHANNELS: set[str] = {
-    "thermal_comfort_lst_inv",
-    "air_purity_pm25_inv",
-    "multi_pollutant_aqi_inv",
-}
+@dataclass(frozen=True)
+class ChannelBenchmark:
+    """Universal scaling rule for one feature channel."""
+
+    name: str
+    source: str
+    transform: str
+    lower: float
+    upper: float
+    orientation: str
+    friction_group: str
+    bound_source: str
+
+    def __post_init__(self) -> None:
+        if self.transform not in TRANSFORMS:
+            raise ValueError(f"{self.name}: unknown transform {self.transform!r}")
+        if self.orientation not in ORIENTATIONS:
+            raise ValueError(f"{self.name}: unknown orientation {self.orientation!r}")
+        if self.friction_group not in FRICTION_GROUPS:
+            raise ValueError(f"{self.name}: unknown friction group {self.friction_group!r}")
+        if not self.upper > self.lower:
+            raise ValueError(f"{self.name}: upper bound must exceed lower bound")
 
 
-def winsorize_series(
-    series: pd.Series,
-    percentile: float = 99.0,
-) -> pd.Series:
+@dataclass(frozen=True)
+class BenchmarkSet:
+    """A versioned set of universal benchmarks (ADR 0003)."""
+
+    version: str
+    provisional: bool
+    channels: tuple[ChannelBenchmark, ...]
+    min_density_per_km2: float
+    min_building_count: int
+    sensitivity_densities_per_km2: tuple[float, ...]
+    un_habitat_min_m2: float
+    clip_flag_share: float
+
+    @property
+    def names(self) -> list[str]:
+        return [c.name for c in self.channels]
+
+    def group_indices(self, group: str) -> list[int]:
+        """Column indices of channels in a Stage 4 friction group ('socio' or 'bio')."""
+        return [i for i, c in enumerate(self.channels) if c.friction_group == group]
+
+
+def benchmark_path(version: str, config_dir: str | Path) -> Path:
+    """Path of the benchmark file for a version, e.g. configs/benchmarks/benchmarks_v0.yaml."""
+    return Path(config_dir) / "benchmarks" / f"benchmarks_{version}.yaml"
+
+
+def parse_benchmarks(raw: dict[str, Any]) -> BenchmarkSet:
+    """Validates a parsed benchmark YAML document into a BenchmarkSet."""
+    channels = tuple(ChannelBenchmark(**c) for c in raw["channels"])
+    names = [c.name for c in channels]
+    if len(set(names)) != len(names):
+        raise ValueError("Duplicate channel names in benchmark file")
+    residential = raw["residential"]
+    return BenchmarkSet(
+        version=str(raw["version"]),
+        provisional=bool(raw.get("provisional", False)),
+        channels=channels,
+        min_density_per_km2=float(residential["min_density_per_km2"]),
+        min_building_count=int(residential["min_building_count"]),
+        sensitivity_densities_per_km2=tuple(float(d) for d in residential["sensitivity_densities_per_km2"]),
+        un_habitat_min_m2=float(raw["living_space"]["un_habitat_min_m2"]),
+        clip_flag_share=float(raw["clip_flag_share"]),
+    )
+
+
+def load_benchmarks(path: str | Path) -> BenchmarkSet:
+    """Loads and validates a universal benchmark file."""
+    with open(path, encoding="utf-8") as f:
+        return parse_benchmarks(yaml.safe_load(f))
+
+
+def apply_transform(values: np.ndarray, transform: str) -> np.ndarray:
+    """Applies a channel transform; NaN stays NaN."""
+    values = np.asarray(values, dtype=np.float64)
+    if transform == "none":
+        return values
+    if transform == "log1p":
+        return np.log1p(np.clip(values, 0.0, None))
+    raise ValueError(f"Unknown transform {transform!r}")
+
+
+def scale_channel(values: np.ndarray, bench: ChannelBenchmark) -> np.ndarray:
     """
-    Clips extreme positive outliers in a Pandas Series at the specified percentile.
+    Transforms, clips to the frozen bounds, scales to [0, 1] and orients one channel.
+    NaN (no valid observation) is preserved.
+    """
+    x = apply_transform(values, bench.transform)
+    scaled = (np.clip(x, bench.lower, bench.upper) - bench.lower) / (bench.upper - bench.lower)
+    if bench.orientation == "inverted":
+        scaled = 1.0 - scaled
+    return scaled
+
+
+def build_feature_matrix(raw_df: pd.DataFrame, benchmarks: BenchmarkSet) -> pd.DataFrame:
+    """
+    Scales every channel of the raw feature table with the universal benchmarks.
 
     Parameters
     ----------
-    series : pd.Series
-        Input numerical series.
-    percentile : float, default 99.0
-        Upper percentile cut-off threshold (0-100).
+    raw_df : pd.DataFrame
+        Raw physical values indexed by H3 cell; must contain each channel's `source` column.
+    benchmarks : BenchmarkSet
+        Universal benchmark version.
 
     Returns
     -------
-    pd.Series
-        Winsorized series with values > cutoff capped to the cutoff value.
+    pd.DataFrame
+        Scaled channels in benchmark order, values in [0, 1] or NaN.
     """
-    cutoff = float(np.percentile(series.dropna(), percentile))
-    return series.clip(upper=cutoff)
+    missing = [c.source for c in benchmarks.channels if c.source not in raw_df.columns]
+    if missing:
+        raise KeyError(f"Raw feature table lacks source columns: {missing}")
+    scaled = {c.name: scale_channel(raw_df[c.source].to_numpy(), c) for c in benchmarks.channels}
+    return pd.DataFrame(scaled, index=raw_df.index)
+
+
+def clipped_shares(
+    raw_df: pd.DataFrame,
+    benchmarks: BenchmarkSet,
+    mask: pd.Series | np.ndarray,
+) -> pd.DataFrame:
+    """
+    Share of masked (residential) cells clipped at each frozen bound, per channel.
+
+    A channel whose share at either bound exceeds `clip_flag_share` is flagged: the region
+    lies outside the reference distribution for that channel.
+    """
+    mask = np.asarray(mask, dtype=bool)
+    rows = []
+    for c in benchmarks.channels:
+        x = apply_transform(raw_df[c.source].to_numpy(), c.transform)[mask]
+        x = x[~np.isnan(x)]
+        n = max(x.size, 1)
+        below = float(np.sum(x < c.lower)) / n
+        above = float(np.sum(x > c.upper)) / n
+        rows.append({
+            "channel": c.name,
+            "n_valid": int(x.size),
+            "share_below_lower": below,
+            "share_above_upper": above,
+            "outside_reference": max(below, above) > benchmarks.clip_flag_share,
+        })
+    return pd.DataFrame(rows).set_index("channel")
+
+
+def complete_feature_mask(scaled_df: pd.DataFrame) -> pd.Series:
+    """Cells with a valid value in every channel."""
+    return scaled_df.notna().all(axis=1)
+
+
+def fill_for_message_passing(
+    scaled_df: pd.DataFrame,
+    reference_mask: pd.Series | np.ndarray,
+) -> np.ndarray:
+    """
+    Fills NaN with the per-channel median over reference (residential, complete) cells.
+
+    Filled cells are excluded from the loss and metrics by the training mask; the fill only
+    keeps message passing defined across the full H3 graph.
+    """
+    reference_mask = np.asarray(reference_mask, dtype=bool)
+    medians = scaled_df[reference_mask].median()
+    filled = scaled_df.fillna(medians).fillna(0.0)
+    return filled.to_numpy(dtype=np.float32)
+
+
+def combine_floor_area(
+    explicit_floor_area_m2: pd.Series,
+    unknown_height_footprint_m2: pd.Series,
+    mean_floors: pd.Series,
+    residential_ratio: pd.Series | None = None,
+) -> pd.Series:
+    """
+    Total floor area per cell: footprints with a known height use their own floor count;
+    footprints without one take the cell's presence-weighted mean floors from Open Buildings
+    2.5D Temporal (1 floor where that layer has no buildings).
+
+    If residential_ratio is provided (e.g. from GHS-BUILT-S non-residential surface masking),
+    gross floor area is multiplied by the residential fraction in [0, 1] to remove commercial,
+    industrial, and institutional built stock.
+    """
+    floors = mean_floors.reindex(explicit_floor_area_m2.index).fillna(1.0).clip(lower=1.0)
+    unknown = unknown_height_footprint_m2.reindex(explicit_floor_area_m2.index).fillna(0.0)
+    gross = explicit_floor_area_m2.fillna(0.0) + unknown * floors
+    if residential_ratio is not None:
+        ratio = residential_ratio.reindex(explicit_floor_area_m2.index).fillna(1.0).clip(lower=0.0, upper=1.0)
+        return gross * ratio
+    return gross
+
+
+def compute_ghs_residential_floor_area(
+    built_volume_total_m3: pd.Series,
+    built_volume_nres_m3: pd.Series,
+    floor_height_m: float = 3.0,
+) -> pd.Series:
+    """
+    Computes residential floor area (m²) from GHS-BUILT-V 3D volume grids:
+    floor_area_res = max(0, built_volume_total - built_volume_nres) / floor_height_m.
+    Standard storey height is 3.0 m (Biljecki & Chow, 2022; European Commission JRC).
+    """
+    total = built_volume_total_m3.fillna(0.0)
+    nres = built_volume_nres_m3.fillna(0.0)
+    vol_res = (total - nres).clip(lower=0.0)
+    return vol_res / floor_height_m
+
+
+def compute_terrain_safety(hazard_slope_share: pd.Series) -> pd.Series:
+    """
+    Computes terrain safety indicator:
+    Inverted share of cell area with slope exceeding hazardous threshold (> 15°):
+    terrain_safety = (1.0 - hazard_slope_share).clip(lower=0.0, upper=1.0)
+    Higher values indicate safer, non-hazardous, buildable flat terrain.
+    """
+    return (1.0 - hazard_slope_share.fillna(0.0)).clip(lower=0.0, upper=1.0)
 
 
 def compute_living_space_ratio(
-    buildings_df: gpd.GeoDataFrame,
-    worldpop_series: pd.Series,
-    min_standard_m2: float = 9.0,
-    floor_height_m: float = 3.0,
-    winsorize_p99: bool = True,
+    floor_area_m2: pd.Series,
+    population: pd.Series,
+    un_habitat_min_m2: float = 9.0,
 ) -> pd.Series:
     """
-    Computes the Living Space Ratio (R_space) per H3 hexagonal cell.
+    Living Space Ratio R_space = (residential floor area / population) / 9.0 m².
 
-    Formula:
-        R_space = (Observed Living Floor Area per Capita) / (UN-Habitat Minimum Shelter 9.0 m²)
-
-    Values:
-        - R_space < 1.0: Severe overcrowding / critical living space deficit.
-        - R_space = 1.0: Meets minimum UN-Habitat shelter standard.
-        - R_space > 1.0: Adequate or affluent spatial living conditions.
-
-    Parameters
-    ----------
-    buildings_df : gpd.GeoDataFrame
-        Building footprints with 'height', 'geometry', and 'h3_index'.
-    worldpop_series : pd.Series
-        WorldPop estimated population indexed by H3 hex id.
-    min_standard_m2 : float, optional
-        UN-Habitat minimum floor area standard in m² (default 9.0 m²).
-    floor_height_m : float, optional
-        International nominal floor-to-floor height (default 3.0 m).
-    winsorize_p99 : bool, default True
-        Whether to apply P99 winsorization to remove CBD denominator artifacts.
-
-    Returns
-    -------
-    pd.Series
-        Living space ratio indexed by H3 cell.
+    Cells without population are NaN (undefined), not 0, so missing buildings or people
+    can never be read as severe overcrowding. Capping happens at scaling via the frozen
+    upper bound.
     """
-    floors = np.maximum(1, np.floor(buildings_df["height"] / floor_height_m))
-    total_floor_area = buildings_df.geometry.area * floors
-    buildings_df = buildings_df.copy()
-    buildings_df["floor_area"] = total_floor_area
-
-    # Aggregate total residential floor area by H3 hexagon
-    h3_floor_area = buildings_df.groupby("h3_index")["floor_area"].sum()
-    pop = np.maximum(worldpop_series, 1.0)
-    living_space_per_capita = h3_floor_area / pop
-
-    if winsorize_p99 and len(living_space_per_capita) > 1:
-        living_space_per_capita = winsorize_series(living_space_per_capita, percentile=99.0)
-
-    return living_space_per_capita / min_standard_m2
+    pop = population.reindex(floor_area_m2.index)
+    per_capita = floor_area_m2 / pop.where(pop > 0)
+    return per_capita / un_habitat_min_m2
 
 
-def compute_economic_energy_radiance(
-    viirs_series: pd.Series,
-    worldpop_series: pd.Series,
-    winsorize_p99: bool = True,
+def heat_island_background_mask(
+    is_residential: pd.Series,
+    smod_code: pd.Series,
+    veg_probability: pd.Series,
+    background_smod_codes: list[int],
+    min_veg_probability: float,
 ) -> pd.Series:
-    """
-    Computes nighttime radiance per capita with P99 winsorization.
-
-    Parameters
-    ----------
-    viirs_series : pd.Series
-        Mean VIIRS radiance per H3 cell.
-    worldpop_series : pd.Series
-        Population per H3 cell.
-    winsorize_p99 : bool, default True
-        Whether to winsorize at 99th percentile.
-
-    Returns
-    -------
-    pd.Series
-        Radiance per capita.
-    """
-    pop = np.maximum(worldpop_series, 1.0)
-    per_capita = viirs_series / pop
-    if winsorize_p99 and len(per_capita) > 1:
-        per_capita = winsorize_series(per_capita, percentile=99.0)
-    return per_capita
-
-
-def normalize_feature_matrix(
-    df: pd.DataFrame,
-    feature_cols: list[str],
-    benchmarks: dict[str, tuple[float, float]] | None = None,
-) -> np.ndarray:
-    """
-    Applies Universal Min-Max scaling to map physical indicators into the [0.0, 1.0] interval.
-
-    Aligning all features onto a universal [0.0, 1.0] scale is critical for the
-    Graph Attention Autoencoder (GAT-AE):
-    - Prevents high-magnitude indicators from dominating the mean squared reconstruction error.
-    - Preserves absolute, international comparability across metropolitan regions.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Table containing raw feature columns.
-    feature_cols : list[str]
-        List of column names to extract and normalize.
-    benchmarks : dict[str, tuple[float, float]] | None, optional
-        Dictionary mapping column names to (min_benchmark, max_benchmark).
-        If None, uses DEFAULT_10D_BENCHMARKS.
-
-    Returns
-    -------
-    np.ndarray
-        Normalized feature matrix X in R^(N x D) with values strictly in [0.0, 1.0].
-    """
-    if benchmarks is None:
-        benchmarks = DEFAULT_10D_BENCHMARKS
-
-    normalized = np.zeros((len(df), len(feature_cols)), dtype=np.float32)
-    for idx, col in enumerate(feature_cols):
-        min_val, max_val = benchmarks.get(col, (float(df[col].min()), float(df[col].max())))
-        val = np.clip(df[col].to_numpy(dtype=np.float32), min_val, max_val)
-        norm_val = (val - min_val) / (max_val - min_val + 1e-8)
-
-        # Invert hazard channels so higher is always better
-        if col in INVERTED_HAZARD_CHANNELS:
-            norm_val = 1.0 - norm_val
-
-        normalized[:, idx] = norm_val
-    return normalized
-
-
-def build_10d_feature_matrix(
-    raw_features_df: pd.DataFrame,
-    benchmarks: dict[str, tuple[float, float]] | None = None,
-    winsorize_amenities_p99: bool = True,
-) -> np.ndarray:
-    """
-    Standardizes and packages the 10 canonical living standard indicators into matrix X.
-
-    Parameters
-    ----------
-    raw_features_df : pd.DataFrame
-        DataFrame containing all 10 canonical feature columns indexed by H3 ID.
-    benchmarks : dict[str, tuple[float, float]] | None, optional
-        Custom benchmark mapping.
-    winsorize_amenities_p99 : bool, default True
-        Whether to apply P99 winsorization to cumulative amenities, preventing
-        extreme commercial nodes from dominating the scale while preserving
-        local SME/informal retail variance.
-
-    Returns
-    -------
-    np.ndarray
-        Normalized feature matrix X of shape (N, 10) in [0.0, 1.0].
-    """
-    df = raw_features_df.copy()
-    if winsorize_amenities_p99 and "cumulative_amenities_15m" in df.columns:
-        if len(df) > 1:
-            df["cumulative_amenities_15m"] = winsorize_series(
-                df["cumulative_amenities_15m"], percentile=99.0
-            )
-
-    return normalize_feature_matrix(
-        df,
-        feature_cols=FEATURE_DIMENSIONS_10D,
-        benchmarks=benchmarks,
+    """Non-residential rural cells dominated by tree/grass/crop cover: the regional LST background."""
+    return (
+        ~is_residential.astype(bool)
+        & smod_code.isin(background_smod_codes)
+        & (veg_probability >= min_veg_probability)
     )
 
+
+def compute_heat_island_intensity(
+    lst_k: pd.Series,
+    background_mask: pd.Series,
+    min_background_cells: int = 50,
+) -> tuple[pd.Series, float]:
+    """
+    Heat island intensity ΔLST = cell LST - median LST of the regional background (K).
+
+    Raises
+    ------
+    ValueError
+        If fewer than `min_background_cells` background cells have a valid LST; widen the
+        region's background definition in its measurement settings.
+    """
+    background = lst_k[background_mask.astype(bool)].dropna()
+    if len(background) < min_background_cells:
+        raise ValueError(
+            f"Only {len(background)} heat-island background cells (< {min_background_cells}); "
+            "widen the region's heat_island background settings."
+        )
+    background_lst = float(background.median())
+    return lst_k - background_lst, background_lst
 
 
 def assemble_h3_features(
     h3_hexes: list[str],
     data_sources: dict[str, Any] | None = None,
-    config: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
     """
-    Assembles all physical living standard indicators into a unified H3 Resolution 8 table.
+    Assembles indicator columns into a unified H3 Resolution 8 table.
 
     Parameters
     ----------
     h3_hexes : list[str]
         List of target H3 cell indices.
     data_sources : dict[str, Any] | None, optional
-        Dictionary containing loaded datasets (buildings, amenities, rasters).
-    config : dict[str, Any] | None, optional
-        Project configuration mapping.
+        Column name to pd.Series (aligned by H3 index), array/list (positional), or scalar.
 
     Returns
     -------
     pd.DataFrame
         H3 feature table indexed by H3 cell ID.
     """
-    return pd.DataFrame(index=h3_hexes)
+    df = pd.DataFrame(index=h3_hexes)
+    df.index.name = "h3_index"
+    if data_sources is not None:
+        for col, vals in data_sources.items():
+            if isinstance(vals, pd.Series):
+                df[col] = vals.reindex(h3_hexes).to_numpy()
+            elif isinstance(vals, (np.ndarray, list)):
+                if len(vals) != len(h3_hexes):
+                    raise ValueError(f"{col}: expected {len(h3_hexes)} values, got {len(vals)}")
+                df[col] = vals
+            else:
+                df[col] = vals
+    return df

@@ -13,7 +13,7 @@ with suppress(Exception):
     os.environ["PROJ_LIB"] = _proj_dir
     os.environ["PROJ_DATA"] = _proj_dir
 
-from .credentials import load_earthdata_token
+from .credentials import load_earthdata_token, load_gee_project
 from .ingest_buildings import (
     build_open_buildings_query,
     derive_floor_count,
@@ -23,21 +23,11 @@ from .ingest_buildings import (
 )
 from .ingest_context import (
     OPENMETEO_AIR_QUALITY_VARIABLES,
-    batch_locations,
-    build_planetary_computer_stac_query,
-    build_viirs_request_params,
-    build_worldpop_request,
-    compute_bsi,
-    compute_mndwi,
-    compute_ndbi,
-    compute_ndvi,
-    extract_landsat_lst,
-    fetch_environmental_layers,
-    fetch_openmeteo_air_quality,
-    fetch_planetary_computer_layers,
-    fetch_viirs_black_marble,
-    fetch_worldpop,
+    OPENMETEO_VALIDATION_VARIABLES,
+    build_openmeteo_hourly_params,
+    fetch_openmeteo_hourly_median,
     generate_sampling_grid,
+    summarize_hourly_median,
 )
 from .ingest_overture import (
     build_overture_amenities_query,
@@ -49,30 +39,21 @@ from .ingest_overture import (
 
 __all__ = [
     "OPENMETEO_AIR_QUALITY_VARIABLES",
-    "batch_locations",
+    "OPENMETEO_VALIDATION_VARIABLES",
     "build_open_buildings_query",
+    "build_openmeteo_hourly_params",
     "build_overture_amenities_query",
     "build_overture_transportation_query",
-    "build_planetary_computer_stac_query",
-    "build_viirs_request_params",
-    "build_worldpop_request",
-    "compute_bsi",
-    "compute_mndwi",
-    "compute_ndbi",
-    "compute_ndvi",
     "derive_floor_count",
-    "extract_landsat_lst",
-    "fetch_environmental_layers",
     "fetch_open_buildings_filtered",
-    "fetch_openmeteo_air_quality",
+    "fetch_openmeteo_hourly_median",
     "fetch_overture_amenities",
     "fetch_overture_transportation",
-    "fetch_planetary_computer_layers",
-    "fetch_viirs_black_marble",
-    "fetch_worldpop",
     "filter_by_confidence",
     "generate_sampling_grid",
     "get_duckdb_spatial_connection",
     "intersect_residential_mask",
     "load_earthdata_token",
+    "load_gee_project",
+    "summarize_hourly_median",
 ]

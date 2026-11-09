@@ -1,0 +1,98 @@
+\section{Study Area and Dataset}
+
+\subsection{Study Domain: Greater Jakarta (Jabodetabek) and Karawang Corridor}
+The empirical investigation is situated across the Greater Jakarta metropolitan agglomeration (\textit{Jabodetabek}---encompassing the Special Capital Region of Jakarta, Bogor, Depok, Tangerang, and South Tangerang) and the contiguous industrial corridor of Karawang Regency in West Java, Indonesia (Figure~\ref{fig:study_area_map}). Spatially bounded within geographic coordinates $[106.35^\circ\text{E}, -6.75^\circ\text{S}]$ to $[107.65^\circ\text{E}, -5.95^\circ\text{S}]$, the study area encompasses approximately $12,800\text{ km}^2$ across 15 administrative municipalities (\textit{Kota}) and regencies (\textit{Kabupaten}) spanning three provincial jurisdictions: DKI Jakarta, West Java, and Banten.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.98\textwidth]{figures/study_area_map.png}
+\caption{Study area map encompassing Greater Jakarta (\textit{Jabodetabek}) and the Karawang industrial corridor ($\sim$12,800~km$^2$), overlaid on an Esri WorldStreetMap basemap. Administrative boundaries delineate DKI Jakarta and constituent municipalities/regencies across Banten (Kota Tangerang, Kota Tangerang Selatan, Kabupaten Tangerang) and West Java (Kota Depok, Kota Bogor, Kabupaten Bogor, Kota Bekasi, Kabupaten Bekasi, Kabupaten Karawang). Major transportation hubs (CGK Airport, Tanjung Priok Port), urban commercial cores (Monas CBD, BSD City, Cikarang), and southern volcanic landmarks (Mount Salak, Mount Gede) are indicated. Inset (top-right) highlights regional placement within Java Island, Indonesia.}
+\label{fig:study_area_map}
+\end{figure}
+
+With an enumerated harmonized population exceeding 40.73 million residents (derived via global human settlement layers; \citealt{Schiavina2023}), Jabodetabek represents one of the largest and densest megapolitan regions in the Global South. The area exhibits pronounced morphological dualism:
+\begin{enumerate}
+    \item \textbf{Hyper-dense inner-city informal settlements (\textit{kampungs})}: Characterized by narrow, pedestrian-only alleys (\textit{gang}), building coverage exceeding 80\%, minimal private open space, unpaved drainage channels, and vulnerability to seasonal fluvial flooding along the Ciliwung and Cisadane river basins \citep{Dovey2021, Rukmana2018}.
+    \item \textbf{Master-planned corporate enclaves (\textit{kota mandiri}) and gated communities}: Privately developed satellite townships such as Bumi Serpong Damai (BSD City), Lippo Karawaci, and Pantai Indah Kapuk (PIK), characterized by wide multi-lane arterial road grids, landscaped green spaces, artificial retention lakes, commercial superblocks, and physical perimeter security walls designed to restrict external access \citep{Leisch2002, Winarso2015}.
+    \item \textbf{The eastern industrial corridor (Bekasi--Cikarang--Karawang)}: Southeast Asia's largest automotive and manufacturing manufacturing cluster, exhibiting dense industrial labor housing juxtaposed directly against extensive, irrigated agricultural rice paddies.
+    \item \textbf{The southern peri-urban upland (Bogor Regency and Puncak)}: Mountainous foothills of Mount Salak and Mount Gede, exhibiting steep topographic gradients, agro-forestry, and informal tourist settlements sprawling along ridge axes.
+\end{enumerate}
+
+To overcome the Modifiable Areal Unit Problem (MAUP; \citealt{Openshaw1984}) and the ecological fallacy inherent to arbitrary administrative census units (\textit{Kecamatan} and \textit{Kelurahan}), we discretize the continuous $12,800\text{ km}^2$ study domain using the Uber H3 Discrete Global Grid System \citep{Sahr2003} at \textbf{Resolution 8} ($N = 17,154$ hexagonal cells). Each hexagon maintains an invariant planar surface area of $0.737\text{ km}^2$ ($73.73\text{ hectares}$), a metric edge length of approximately $461\text{ meters}$, and uniform 6-neighbor centroid-to-centroid Euclidean spacing ($923\text{ meters}$). This isotropic property is mathematically optimal for defining spatial neighborhood graphs in Graph Neural Networks \citep{Kipf2016, Velickovic2018}.
+
+\subsection{Multi-Source Dataset Inventory}
+To capture the complex multi-dimensional physical reality of human living environments without survey latency, we harmonize 17 multi-modal datasets spanning Earth observation satellites, airborne models, continental building vector geometry, topological street graphs, gridded human settlement layers, and atmospheric chemical transport reanalysis. All dynamic observation layers are aligned to reference calendar year \textbf{2023} to eliminate temporal confounding. Table~\ref{tab:dataset_inventory} provides an exhaustive inventory of all primary datasets utilized across the research framework.
+
+\begin{xltabular}{\textwidth}{p{2.2cm}p{2.6cm}p{2.3cm}ccp{2.2cm}X}
+\caption{Comprehensive Multi-Source Dataset Inventory Across the Research Framework} \label{tab:dataset_inventory} \\
+\toprule
+\textbf{Category} & \textbf{Dataset} & \textbf{Source} & \textbf{Format} & \textbf{Resolution} & \textbf{Temporal Status} & \textbf{Research Relevance} \\
+\midrule
+\endfirsthead
+\multicolumn{7}{c}%
+{{\bfseries Table \thetable\ continued from previous page}} \\
+\toprule
+\textbf{Category} & \textbf{Dataset} & \textbf{Source} & \textbf{Format} & \textbf{Resolution} & \textbf{Temporal Status} & \textbf{Research Relevance} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{7}{r}{{Continued on next page}} \\
+\bottomrule
+\endfoot
+\bottomrule
+\endlastfoot
+\textbf{Spatial Base} & Uber H3 DGGS (Res 8) & \href{https://h3geo.org/}{Uber Technologies} & Vector & 0.737 km$^2$ / 461 m & Static (v4.1) & Discrete global grid establishing equal-area, MAUP-invariant graph nodes ($N = 17,154$) for neural message passing. \\
+\addlinespace
+\textbf{Built Environment} & Google Open Buildings v3 & \href{https://sites.research.google/open-buildings/}{Google Research} & Vector & Footprints ($\ge 0.65$ conf) & 2023 release & Resolves building footprint geometries to compute total built footprint area and density. \\
+\textbf{Built Environment} & Open Buildings 2.5D & \href{https://sites.research.google/open-buildings/}{Google Research} & Tabular / Model & Building-level / 100 m & 2023 annual composite & Predicts building floor counts to infer 3D living floor area per hexagon. \\
+\textbf{Built Environment} & GHS-BUILT-S \& BUILT-C & \href{https://ghsl.jrc.ec.europa.eu/}{EC JRC} & Raster & 100 m & 2020 (interpolated 2023) & Distinguishes residential from industrial non-residential structures to isolate true living floor mass. \\
+\addlinespace
+\textbf{Demography} & JRC GHS-POP & \href{https://ghsl.jrc.ec.europa.eu/ghs_pop2023.php}{EC JRC} & Raster & 100 m & 2023 (interpolated) & Enumerates resident population (40.73M residents) to compute per-capita living space ($R_{\text{space}}$) and residential masks. \\
+\textbf{Demography} & JRC GHS-SMOD & \href{https://ghsl.jrc.ec.europa.eu/ghs_smod2023.php}{EC JRC} & Raster & 1 km & 2020--2025 epoch & Degree of Urbanisation typology used to delineate urban centers, clusters, and rural reference cells. \\
+\addlinespace
+\textbf{Social Infrastructure} & Overture Maps Places & \href{https://overturemaps.org/}{Overture Maps} & Vector & Geocoded points & 2024-02-15 (for 2023) & Curated catalog of 173,820 daily necessities (markets, warungs, clinics, schools, worship) for walkability. \\
+\textbf{Social Infrastructure} & OpenStreetMap Network & \href{https://download.geofabrik.de/asia/indonesia/java.html}{Geofabrik / OSM} & Vector & Network topology & 2024-01-01 snapshot & Pedestrian walking network for \texttt{city2graph} 15-minute topological Dijkstra isochrone routing. \\
+\addlinespace
+\textbf{Biophysical} & Sentinel-2 MSI L2A & \href{https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_S2_SR_HARMONIZED}{ESA / Copernicus} & Raster & 10 m / 20 m & Dry season 2023 (62 scenes) & Multi-spectral reflectance used to compute NDVI (canopy), NDBI (built density), and BSI (bare soil). \\
+\textbf{Biophysical} & Dynamic World 10m & \href{https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_DYNAMICWORLD_V1}{Google / WRI} & Raster & 10 m & 2023 (383 scenes) & High-resolution land cover probabilities to calculate surface water recurrence and validate canopy. \\
+\textbf{Biophysical} & JRC Global Surface Water & \href{https://developers.google.com/earth-engine/datasets/catalog/JRC_GSW1_4_GlobalSurfaceWater}{EC JRC} & Raster & 30 m & Multi-decadal recurrence & Identifies permanent deep water bodies (marine bays, major lakes) to prevent distorted evaluations. \\
+\addlinespace
+\textbf{Microclimate} & Landsat 8/9 C2 L2 (ST\_B10) & \href{https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LC08_C02_T1_L2}{USGS / NASA} & Raster & 30 m & Dry season 2023 & Measures Land Surface Temperature (LST) and Surface Urban Heat Island ($\Delta\text{LST}$) above rural baseline. \\
+\textbf{Microclimate} & MODIS Daily Daytime LST & \href{https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD11A1}{NASA LP DAAC} & Raster & 1,000 m & 2023 annual median & Independent thermodynamic cross-sensor sanity benchmark against Landsat 8/9 LST ($\rho = 0.882$). \\
+\addlinespace
+\textbf{Atmospheric Health} & ACAG V6.GL.02.04 $\text{PM}_{2.5}$ & \href{https://sites.wustl.edu/acag/datasets/surface-pm2-5/}{ACAG / WashU} & Raster & $0.01^\circ$ ($\sim$1.1 km) & 12 monthly grids (2023) & Fused satellite-chemical transport model reanalysis quantifying ambient ground-level fine particulate pollution. \\
+\textbf{Atmospheric Health} & Sentinel-5P TROPOMI $\text{NO}_2$ & \href{https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_S5P_OFFL_L3_NO2}{ESA / Copernicus} & Raster & 1,113 m ($0.01^\circ$) & 2023 annual median & Quantifies tropospheric nitrogen dioxide combustion emissions along expressways and industrial corridors. \\
+\textbf{Infrastructure} & NASA VIIRS Black Marble & \href{https://developers.google.com/earth-engine/datasets/catalog/NOAA_VIIRS_DNB_MONTHLY_V1_VCMCFG}{NASA LAADS DAAC} & Raster & 15 arc-sec ($\sim$464 m) & 2023 annual composite & Measures artificial nighttime luminosity to quantify nocturnal electrification and commercial energy density. \\
+\addlinespace
+\textbf{Socioeconomic Valid.} & Meta Relative Wealth Index & \href{https://data.humdata.org/dataset/relative-wealth-index}{Meta Data for Good} & Vector & 2.4 km micro-tiles & 2021 release & Supervised survey asset wealth baseline used in 4-quadrant divergence analysis against physical standards. \\
+\textbf{Socioeconomic Valid.} & BPS Municipal Statistics & \href{https://www.bps.go.id/}{BPS Indonesia} & Tabular & Regency / District & 2023 annual releases & Official municipal poverty rates, density, and socioeconomic census data for macro-regional benchmarking. \\
+\textbf{Ground-Truth Valid.} & Official Slum Decrees & \href{https://kotaku.pu.go.id/}{Bappeda / PUPR} & Vector & Sub-neighborhood & 2020--2023 decrees & Delineates surveyed informal settlements (\textit{RW Kumuh}) for spatial validation of detected segregation edges. \\
+\end{xltabular}
+
+\subsection{Ten-Dimensional Physical Feature Engineering and Universal Baselines}
+To eliminate localized normalization stretching where scores cannot be ported across cities, indicators are standardized against \textbf{Universal Frozen Physical Benchmarks} anchored to international shelter, environmental health, and pedestrian accessibility guidelines (UN-Habitat shelter area threshold of $9.0\text{ m}^2/\text{capita}$, WHO clean air guidelines of $5.0\ \mu\text{g}/\text{m}^3$, and 15-minute walking catchments; Table~\ref{tab:benchmarks}).
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Universal 10-Dimensional Physical Living Standard Benchmark Parameters}
+\label{tab:benchmarks}
+\begin{tabular}{clllcc}
+\toprule
+\textbf{Index} & \textbf{Dimension Name} & \textbf{Raw Unit} & \textbf{Transformation} & \textbf{Lower ($L_k$)} & \textbf{Upper ($U_k$)} \\
+\midrule
+$X_1$ & Space Sufficiency ($R_{\text{space}}$) & Floor area per capita & None & $0.0$ & $6.0$ ($54\text{ m}^2$) \\
+$X_2$ & Built-up Density (NDBI) & Spectral Index & None & $-0.50$ & $+0.30$ \\
+$X_3$ & Walkable Amenities ($A_{\text{amenity}}$) & 15-min POI Count & $\log(1 + x)$ & $0.0$ & $\log(501) \approx 6.22$ \\
+$X_4$ & Bare Soil / Dust (BSI) & Spectral Index & None & $-0.40$ & $+0.30$ \\
+$X_5$ & Nighttime Energy (VIIRS) & $\text{nW}\cdot\text{cm}^{-2}\cdot\text{sr}^{-1}$ & $\log(1 + x)$ & $0.0$ & $\log(101) \approx 4.62$ \\
+$X_6$ & Canopy Greenness (NDVI) & Spectral Index & None & $-0.10$ & $+0.80$ \\
+$X_7$ & Thermal Comfort ($\Delta\text{LST}_{\text{inv}}$) & Kelvin above rural & None & $-5.0\text{ K}$ & $+15.0\text{ K}$ \\
+$X_8$ & Surface Water Frequency & Fraction $[0, 1]$ & None & $0.00$ & $1.00$ \\
+$X_9$ & Particulate Purity ($\text{PM25}_{\text{inv}}$) & $\mu\text{g}/\text{m}^3$ & None & $5.0$ & $100.0$ \\
+$X_{10}$ & Nitrogen Dioxide ($\text{NO2}_{\text{inv}}$) & $\text{mol}/\text{m}^2$ & None & $0.0$ & $2.5 \times 10^{-4}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Filtering by residential criteria ($\text{Pop} \ge 300/\text{cell}$, $\text{Buildings} \ge 1$, $\text{SMOD} \in \{21, 22, 23, 30\}$) isolates \textbf{$N_{\text{res}} = 9,345$ residential cells} ($54.5\%$ of territory, housing the entire 40.73M population), of which \textbf{$N_{\text{modelled}} = 7,943$ cells} possess complete satellite observations across all 10 channels. The remaining cells are retained in the spatial adjacency graph ($|E| = 101,848$ edges) to preserve topological contiguity for Graph Attention Autoencoder message passing.

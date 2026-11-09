@@ -1,0 +1,55 @@
+This is BibTeX, Version 0.99e
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: main.aux
+Reallocating 'name_of_file' (item size: 1) to 8 items.
+The style file: apalike.bst
+Reallocating 'name_of_file' (item size: 1) to 11 items.
+Database file #1: references.bib
+Warning--I didn't find a database entry for "Schiavina2023"
+Warning--I didn't find a database entry for "Rukmana2018"
+Warning--I didn't find a database entry for "Leisch2002"
+Warning--I didn't find a database entry for "Winarso2015"
+Warning--I didn't find a database entry for "Sahr2003"
+Warning--can't use both volume and number fields in Chen2020
+You've used 43 entries,
+            1935 wiz_defined-function locations,
+            767 strings with 11739 characters,
+and the built_in function-call counts, 18378 in all, are:
+= -- 1759
+> -- 880
+< -- 21
++ -- 320
+- -- 304
+* -- 1629
+:= -- 3214
+add.period$ -- 127
+call.type$ -- 43
+change.case$ -- 359
+chr.to.int$ -- 43
+cite$ -- 44
+duplicate$ -- 645
+empty$ -- 1215
+format.name$ -- 359
+if$ -- 3540
+int.to.chr$ -- 1
+int.to.str$ -- 0
+missing$ -- 43
+newline$ -- 216
+num.names$ -- 129
+pop$ -- 315
+preamble$ -- 1
+purify$ -- 362
+quote$ -- 0
+skip$ -- 491
+stack$ -- 0
+substring$ -- 1288
+swap$ -- 84
+text.length$ -- 6
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 250
+warning$ -- 1
+while$ -- 140
+width$ -- 0
+write$ -- 549
+(There were 6 warnings)

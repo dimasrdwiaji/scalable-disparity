@@ -1,0 +1,84 @@
+# Universal scale settings (ADR 0003) — version v1.
+#
+# Identical for every region. Bounds marked `standard` come from external standards.
+#
+# Channel order defines the feature-matrix column order.
+# Friction groups: 'socio' (channels 0-3) and 'bio' (channels 4-6).
+#
+# transform:   none | log1p           (applied before scaling)
+# orientation: positive  -> higher raw value = higher living standard
+#              inverted  -> higher raw value = worse (scaled as 1 - x)
+#              context   -> no better/worse direction (scaled as x)
+
+version: "v1"
+provisional: false
+
+residential:
+  min_density_per_km2: 300.0 # GHSL Degree of Urbanisation lowest settlement threshold
+  min_building_count: 1
+  sensitivity_densities_per_km2: [150.0, 300.0, 1500.0]
+
+living_space:
+  un_habitat_min_m2: 9.0
+
+# Share of residential cells clipped at either bound above which a region is flagged as
+# outside the reference distribution (reported, never re-tuned)
+clip_flag_share: 0.05
+
+channels:
+  - name: space_sufficiency_ratio
+    source: space_sufficiency_ratio
+    transform: none
+    lower: 0.0
+    upper: 6.0 # 54 m² per capita = 6 × UN-Habitat 9 m²
+    orientation: positive
+    friction_group: socio
+    bound_source: standard
+  - name: residential_plan_area_fraction
+    source: residential_plan_area_fraction
+    transform: none
+    lower: 0.0
+    upper: 0.85 # Grimmond & Oke (1999); Kuffer et al. (2016, 2020) hyper-dense informal roof packing
+    orientation: inverted
+    friction_group: socio
+    bound_source: standard
+  - name: building_compactness
+    source: building_compactness
+    transform: none
+    lower: 0.35 # Duque et al. (2015); Abascal et al. (2022) organic/informal irregular accretion
+    upper: 0.85 # Planned formal subdivision regular rectangle
+    orientation: positive
+    friction_group: socio
+    bound_source: literature
+  - name: cumulative_amenities_15m
+    source: amenities_15m
+    transform: log1p
+    lower: 0.0
+    upper: 6.2166 # log1p(500)
+    orientation: positive
+    friction_group: socio
+    bound_source: provisional
+  - name: vegetation_ndvi
+    source: ndvi
+    transform: none
+    lower: -0.1
+    upper: 0.8
+    orientation: context
+    friction_group: bio
+    bound_source: provisional
+  - name: heat_island_intensity_inv
+    source: heat_island_intensity_k
+    transform: none
+    lower: -5.0
+    upper: 15.0
+    orientation: inverted
+    friction_group: bio
+    bound_source: provisional
+  - name: terrain_safety_inv
+    source: terrain_safety_inv
+    transform: none
+    lower: 0.0
+    upper: 1.0 # Proportion of cell with buildable slope <= 15°
+    orientation: positive
+    friction_group: bio
+    bound_source: standard

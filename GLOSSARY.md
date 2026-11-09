@@ -9,6 +9,14 @@ This glossary defines standard domain terms used across the codebase, configurat
 * **H3 Resolution 8 (Res-8)**: Discrete Global Grid System hexagonal cell with an average area of $\approx 0.737\text{ km}^2$ and an edge length of $\approx 461\text{ m}$. Represents the fundamental spatial unit of analysis.
 * **Geometric Centroid**: The exact mathematical center of an H3 hexagonal cell, snapped to the nearest traversable pedestrian road edge for isochrone calculation.
 * **Adjacency Graph ($A \in \mathbb{R}^{N \times N}$)**: Binary undirected topological graph where edge $A_{ij} = 1$ if hex cells $i$ and $j$ share a boundary on the H3 grid.
+* **Residential Cell**: An H3 cell with population density $\ge 300$ persons/km² and at least one building footprint. Only residential cells enter the training loss and disparity metrics. _Avoid_: populated cell.
+* **Reference Epoch**: The single calendar year (2023) that every input layer targets; layers that cannot hit it carry a recorded, quantified gap.
+* **Representative Composite**: A per-pixel median of clear-sky observations within a fixed seasonal window, accepted for a cell only when it meets the clear-observation and valid-area thresholds of its window tier. _Avoid_: mosaic, scene.
+* **Window Tier**: The rung of the compositing window ladder (Tier 1 narrowest) that a cell's composite needed to become representative.
+* **Universal Benchmark**: The frozen, versioned lower and upper bound used to scale a channel to $[0, 1]$, identical for every region and never derived from a study area. _Avoid_: normalization range, local benchmark.
+* **Reference Sample**: The fixed, stratified set of residential cells from cities worldwide whose P1/P99 values set every universal benchmark that has no external standard.
+* **Measurement Setting**: A per-region parameter that governs how a channel's physical value is observed there (compositing window, UTM zone, amenity category mapping), as opposed to how it is scaled.
+* **Context Channel**: A feature channel with no better/worse direction (built-up density, vegetation, water frequency); it describes the physical setting rather than a living standard.
 
 ---
 
@@ -43,11 +51,10 @@ This glossary defines standard domain terms used across the codebase, configurat
 * **Economic Energy Radiance ($E_{\text{night}}$)**: VIIRS Day/Night Band annual cloud-free nighttime radiance (nW/cm²/sr) normalized by population, reflecting active electrification and local commercial vitality.
 * **Vegetative Canopy ($\text{NDVI}$)**: Normalized Difference Vegetation Index derived from Sentinel-2 cloud-free composite in $[-1.0, 1.0]$, capturing urban green canopy, street trees, and private gardens.
   $$\text{NDVI} = \frac{\text{NIR} - \text{Red}}{\text{NIR} + \text{Red}}$$
-* **Thermal Comfort ($\text{LST}_{\text{inv}}$)**: Inverted Land Surface Temperature in Kelvin derived from Landsat C2 L2 thermal infrared, where higher values indicate cooler microclimates and lower urban heat island stress.
-* **Surface Water & Drainage Vulnerability ($\text{MNDWI}$)**: Modified Normalized Difference Water Index derived from Sentinel-2 ($\text{Green}$ and $\text{SWIR}_1$) in $[-1.0, 1.0]$, capturing open wastewater ditches, retention basins, and flood-prone drainage channels.
-  $$\text{MNDWI} = \frac{\text{Green} - \text{SWIR}_1}{\text{Green} + \text{SWIR}_1}$$
-* **Fine Particulate Air Purity ($\text{PM25}_{\text{inv}}$)**: Inverted annual $\text{PM}_{2.5}$ exposure benchmarked against the WHO guidelines ($15\,\mu\text{g/m}^3$).
-* **Multi-Pollutant Air Purity ($\text{AQI}_{\text{inv}}$)**: Inverted official regulatory air quality index (`european_aqi` / `us_aqi`) combining $\text{PM}_{10}, \text{NO}_2, \text{SO}_2, \text{CO}$, and $\text{O}_3$.
+* **Heat Island Intensity ($\Delta\text{LST}$)**: A cell's land surface temperature minus its region's rural vegetated background, in Kelvin; the feature channel is its inverse, so higher means less excess heat. _Avoid_: thermal comfort, absolute LST channel.
+* **Water Frequency**: Share of clear observations in the reference epoch classified as water, in $[0, 1]$, capturing permanent water bodies and recurrent flooding. _Avoid_: MNDWI channel, drainage vulnerability.
+* **Fine Particulate Air Purity ($\text{PM25}_{\text{inv}}$)**: Inverted annual $\text{PM}_{2.5}$ exposure, anchored at the WHO 2021 annual guideline ($5\,\mu\text{g/m}^3$).
+* **Traffic Combustion Exposure ($\text{NO2}_{\text{inv}}$)**: Inverted reference-epoch median tropospheric $\text{NO}_2$ column, a proxy for road-traffic and combustion pollution. _Avoid_: multi-pollutant AQI.
 
 ---
 

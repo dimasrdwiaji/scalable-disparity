@@ -1,49 +1,169 @@
-# Default Configuration for Physical Living Standard Index (PLSI) Pipeline
+# Per-region measurement settings: Jabodetabek + Karawang (ADR 0002, ADR 0003).
+#
+# This file says HOW each channel is observed in this region. HOW channels are scaled to
+# [0, 1] lives in the versioned universal benchmark file (configs/benchmarks/), which is
+# identical for every region and never tuned to a study area.
 
 project:
   name: "phys-living-index"
-  version: "0.1.0"
+  version: "0.2.0"
   study_area: "jabodetabek_karawang"
+
+# Universal scale settings version (configs/benchmarks/benchmarks_<version>.yaml).
+benchmarks_version: "v1"
 
 spatial:
   # Greater Jakarta (Jabodetabek) + Karawang Regency Bounding Box: [min_lon, min_lat, max_lon, max_lat]
   # Eastward extension to 107.65 captures Karawang's industrial-labor-housing vs. agrarian-hinterland disparity.
   bbox: [106.35, -6.75, 107.65, -5.95]
   h3_resolution: 8 # ~0.737 km², edge length ~461m
-  isochrone:
-    network_mode: "walk"
-    walking_speed_kmh: 4.0
-    cutoff_minutes: 15
-    cutoff_distance_meters: 1000
+  utm_crs: "EPSG:32748" # UTM 48S: reduction CRS and metric routing CRS
 
-standards:
-  un_habitat_min_living_space_m2: 9.0
-  who_pm25_annual_threshold_ugm3: 15.0
-  radiance_saturation_ceiling_nw: 50.0
+# ADR 0002 §1: one reference year for every layer
+reference_epoch:
+  year: 2023
+  snapshot_date: "2024-01-01" # vector snapshots (OSM) nearest the end of the reference year
+
+# ADR 0002 §2: representative composites, window ladder narrowest first.
+# Date ranges are [start, end) as Earth Engine filterDate takes them.
+compositing:
+  gee_batch_size: 250
+  sentinel2:
+    cs_cdf_threshold: 0.60 # Cloud Score+ clear threshold
+    min_clear: 5
+    min_valid_frac: 0.80
+    scale_m: 20 # B11 native; a 0.74 km² cell mean is insensitive to 10 vs 20 m
+    tiers:
+      - [["2023-06-01", "2023-10-01"]]
+      - [["2023-05-01", "2023-11-01"]]
+      - [["2023-06-01", "2023-10-01"], ["2024-06-01", "2024-10-01"]]
+  landsat:
+    max_st_uncertainty_k: 3.0
+    min_clear: 3
+    min_valid_frac: 0.70
+    scale_m: 30
+    tiers:
+      - [["2023-06-01", "2023-10-01"]]
+      - [["2023-05-01", "2023-11-01"]]
+      - [["2022-06-01", "2022-10-01"], ["2023-06-01", "2023-10-01"], ["2024-06-01", "2024-10-01"]]
+  water:
+    date_range: ["2023-01-01", "2024-01-01"] # whole year: flood exposure peaks in the wet season
+    min_observations: 10
+    permanent_min_occurrence: 90
+    scale_m: 20
+
+# ADR 0003 §2: heat island intensity = cell LST - regional rural vegetated background
+heat_island:
+  background_smod_codes: [11, 12, 13] # GHS-SMOD rural classes
+  min_veg_probability: 0.5 # Dynamic World tree + grass + crop
+  min_background_cells: 50
+
+night_lights:
+  scale_m: 463.83
+
+air_quality:
+  acag_dir: "data/raw/acag" # ACAG V6.GL.02.04 monthly 0.01° NetCDF files (manual Box download)
+  no2_date_range: ["2023-01-01", "2024-01-01"]
+  no2_scale_m: 1113.2
+  openmeteo_validation_step_deg: 0.25
+
+population:
+  ghs_epochs: [2020, 2025] # interpolated linearly to the reference year
+  smod_epoch: 2025 # nearest GHS-SMOD epoch to 2023
+  built_surface_epochs: [2020, 2025] # epoch-gap check
+
+topography:
+  slope_threshold_degrees: 15.0 # Geotechnical and Indonesian planning (Permen PU 20/2007) hazardous slope limit
+  scale_m: 30.0
+
+buildings:
+  min_confidence: 0.65
+  eave_offset_m: 0.5 # inward buffer in meters to strip roof overhang to wall-line
+  open_buildings_temporal_year: 2023 # height fill for footprints without heights
+  open_buildings_scale_m: 4
   # International Building Standards (EC JRC GHSL; Biljecki & Chow, 2022)
   ghsl_residential_floor_height_m: 3.0
   ghsl_commercial_floor_height_m: 3.6
+  high_rise_threshold_m: 35.0
+  use_filter:
+    enabled: true
+    min_commercial_retail_size_m2: 200.0
+    large_low_min_m2: 2500.0
+    large_low_max_floors: 3
+    rect_warehouse_min_m2: 1000.0
+    rect_warehouse_min_rectangularity: 0.85
+    rect_warehouse_max_floors: 2
+    local_outlier_ratio: 10.0
+    local_outlier_min_m2: 500.0
+    high_rise_exemption_floors: 6
+    small_home_max_m2: 200.0
 
-features:
-  dimensions: 10
-  names:
-    - "space_sufficiency_ratio"
-    - "builtup_ndbi"
-    - "cumulative_amenities_15m"
-    - "bare_soil_bsi"
-    - "nighttime_energy_radiance"
-    - "vegetation_ndvi"
-    - "thermal_comfort_lst_inv"
-    - "water_mndwi"
-    - "air_purity_pm25_inv"
-    - "multi_pollutant_aqi_inv"
-  open_buildings:
-    min_confidence: 0.65
-    floor_height_meters: 3.0
+accessibility:
+  osm_extract_url: "https://download.geofabrik.de/asia/indonesia/java-240101.osm.pbf"
+  network_mode: "walk"
+  walking_speed_kmh: 4.0
+  cutoff_minutes: 15
+  dijkstra_batch_size: 64
+  max_snap_distance_m: 500 # cells farther from the network are flagged in the report
+  # Local amenity vocabulary (Overture taxonomy) — see ADR 0004
+  amenity_categories:
+    # Daily retail, markets, sembako, shops
+    - convenience_store
+    - grocery_store
+    - supermarket
+    - shopping
+    - clothing_store
+    - marketplace
+    - kiosk
+    - general_store
+    - department_store
+    - shopping_mall
+    - bakery
+    - commercial.supermarket_grocery
+    # Food, warung, restaurants, warkop
+    - restaurant
+    - indonesian_restaurant
+    - fast_food_restaurant
+    - cafe
+    - coffee_shop
+    - food_court
+    - chicken_restaurant
+    - asian_restaurant
+    # Healthcare & daily essentials
+    - hospital
+    - clinic
+    - pharmacy
+    - dentist
+    - bank_or_credit_union
+    - atm
+    - post_office
+    - government_office
+    - social_or_community_service
+    - healthcare.hospital
+    - healthcare.clinic
+    # Education
+    - school
+    - elementary_school
+    - preschool
+    - college_university
+    - education
+    - education.school
+    # Places of worship
+    - muslim_place_of_worship
+    - christian_place_of_worship
+    - place_of_worship
+    - hindu_temple
+    - buddhist_temple
+    - church
+    - mosque
+    - temple
+    - synagogue
+    - religious_organization
+  open_space_subtypes: [park, sports_pitch, recreation_ground]
 
 model:
   architecture: "SpatialGATAutoencoder"
-  in_channels: 10
+  in_channels: 7
   hidden_dim: 16
   latent_dim: 2
   heads: 2
@@ -54,6 +174,8 @@ model:
   loss_weights:
     reconstruction: 1.0
     smoothness: 0.2
+  # ADR 0003 §3: main run uniform; inverse-variance is the sensitivity run
+  channel_weighting: "uniform"
 
 typologies:
   algorithm: "hdbscan"

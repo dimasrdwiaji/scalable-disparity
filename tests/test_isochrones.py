@@ -10,6 +10,10 @@ from phys_living_index.features.isochrones import (
     compute_amenity_accessibility,
     compute_batched_dijkstra_distances,
     count_reachable_amenities,
+    count_reachable_categories,
+    project_coordinates,
+    reachable_poi_mask,
+    remaining_budget,
     snap_coordinates_to_nodes,
 )
 
@@ -102,42 +106,103 @@ def test_count_reachable_amenities():
     assert counts[1] == 1
 
 
-def test_compute_amenity_accessibility_integration_mock():
-    # Synthetic GeoDataFrames
-    # Hex centroids: 2 hexes
-    hex_gdf = gpd.GeoDataFrame({
-        "h3_index": ["8828308281fffff", "8828308283fffff"],
-        "geometry": [Point(106.82, -6.17), Point(106.83, -6.17)],
-    }, crs="EPSG:4326")
-    
-    # POIs: 2 points
+def test_remaining_budget_and_reachable_mask():
+    budgets = remaining_budget(np.array([0.0, 300.0, 1200.0]), 1000.0)
+    assert budgets.tolist() == [1000.0, 700.0, 0.0]
+
+    dist = np.array([[0.0, 800.0], [0.0, 800.0], [0.0, 800.0]])
+    reachable = reachable_poi_mask(dist, np.array([0, 1]), budgets)
+    assert reachable.tolist() == [[True, True], [True, False], [True, False]]
+
+
+def test_count_reachable_categories():
+    reachable = np.array([[True, True, False], [False, False, True]])
+    codes = np.array([0, 0, 1])
+    assert count_reachable_categories(reachable, codes, 2).tolist() == [1, 1]
+
+
+def test_project_coordinates_to_utm():
+    x, y = project_coordinates(np.array([106.82, 106.83]), np.array([-6.17, -6.17]), "EPSG:32748")
+    assert abs((x[1] - x[0]) - 1105.0) < 15.0  # 0.01° of longitude near 6°S
+
+
+def _metric_fixture():
+    # Line network in metres: nodes every 500 m along x
+    nodes_df = pd.DataFrame({"x": [0.0, 500.0, 1000.0, 1500.0], "y": [0.0, 0.0, 0.0, 0.0]})
+    edges_df = pd.DataFrame({"u": [0, 1, 2], "v": [1, 2, 3], "length_m": [500.0, 500.0, 500.0]})
     poi_gdf = gpd.GeoDataFrame({
-        "id": ["p1", "p2"],
-        "category": ["education.school", "healthcare.clinic"],
-        "geometry": [Point(106.821, -6.171), Point(106.829, -6.171)],
-    }, crs="EPSG:4326")
-    
-    # Network nodes and edges
-    nodes_df = pd.DataFrame({
-        "node_id": [1, 2, 3],
-        "x": [106.82, 106.825, 106.83],
-        "y": [-6.17, -6.17, -6.17],
+        "category": ["school", "clinic", "school"],
+        "geometry": [Point(10.0, 5.0), Point(990.0, 0.0), Point(1500.0, 0.0)],
     })
-    edges_df = pd.DataFrame({
+    return nodes_df, edges_df, poi_gdf
+
+
+def test_compute_amenity_accessibility_applies_snap_budget():
+    nodes_df, edges_df, poi_gdf = _metric_fixture()
+    hex_gdf = gpd.GeoDataFrame({
+        "h3_index": ["near", "offset", "far"],
+        # 'offset' sits 200 m off node 0, so only 800 m of network budget remains
+        "geometry": [Point(0.0, 0.0), Point(0.0, 200.0), Point(0.0, 1500.0)],
+    })
+
+    out = compute_amenity_accessibility(hex_gdf, poi_gdf, nodes_df, edges_df, cutoff_meters=1000.0, batch_size=2)
+
+    assert out.loc["near", "amenities_15m"] == 2  # nodes 0 and 2 within 1000 m
+    assert out.loc["near", "amenity_categories_15m"] == 2
+    assert out.loc["offset", "amenities_15m"] == 1  # node 2 at 1000 m exceeds 800 m budget
+    assert out.loc["offset", "snap_distance_m"] == pytest.approx(200.0)
+    assert out.loc["far", "amenities_15m"] == 0  # snap distance > cutoff
+
+
+def test_city2graph_isochrone_accessibility():
+    from shapely.geometry import LineString
+
+    from phys_living_index.features.isochrones import (
+        compute_amenity_accessibility_city2graph,
+        create_isochrone_city2graph,
+    )
+
+    nodes_gdf = gpd.GeoDataFrame({
+        "id": [0, 1, 2],
+        "geometry": [Point(0, 0), Point(500, 0), Point(1500, 0)],
+    }, crs="EPSG:32748")
+
+    edges_gdf = gpd.GeoDataFrame({
         "u": [0, 1],
         "v": [1, 2],
-        "length_m": [500.0, 500.0],
-    })
-    
-    accessibility = compute_amenity_accessibility(
+        "length_m": [500.0, 1000.0],
+        "geometry": [LineString([(0, 0), (500, 0)]), LineString([(500, 0), (1500, 0)])],
+    }, crs="EPSG:32748")
+
+    center = Point(0, 0)
+    iso = create_isochrone_city2graph(
+        center_point=center,
+        nodes_gdf=nodes_gdf,
+        edges_gdf=edges_gdf,
+        threshold=1000.0,
+        edge_attr="length_m",
+        method="buffer",
+        buffer_distance=50.0,
+    )
+    assert len(iso) == 1
+    assert iso.geometry.iloc[0].is_valid
+
+    pois = gpd.GeoDataFrame({
+        "category": ["school", "supermarket"],
+        "geometry": [Point(400, 0), Point(1400, 0)],
+    }, crs="EPSG:32748")
+
+    hex_gdf = gpd.GeoDataFrame({
+        "h3_index": ["cell_0"],
+        "geometry": [Point(0, 0)],
+    }, crs="EPSG:32748")
+
+    res = compute_amenity_accessibility_city2graph(
         hex_gdf=hex_gdf,
-        poi_gdf=poi_gdf,
-        nodes_df=nodes_df,
-        edges_df=edges_df,
+        poi_gdf=pois,
+        nodes_gdf=nodes_gdf,
+        edges_gdf=edges_gdf,
         cutoff_meters=1000.0,
     )
-    
-    assert isinstance(accessibility, pd.Series)
-    assert len(accessibility) == 2
-    assert "8828308281fffff" in accessibility.index
-    assert np.all(accessibility.values >= 0)
+    assert res.loc["cell_0", "amenities_15m"] == 1  # only school at 400m
+    assert res.loc["cell_0", "amenity_categories_15m"] == 1

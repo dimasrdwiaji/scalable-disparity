@@ -25,6 +25,8 @@ def run_bottleneck_ablation(
     latent_dims: list[int] | None = None,
     epochs: int = 40,
     lr: float = 0.01,
+    mask: torch.Tensor | None = None,
+    channel_weights: torch.Tensor | None = None,
     seed: int = 42,
 ) -> list[dict[str, Any]]:
     """
@@ -42,21 +44,23 @@ def run_bottleneck_ablation(
         Number of epochs per run.
     lr : float, default 0.01
         Learning rate.
+    mask : torch.Tensor | None, optional
+        Populated node mask (N,).
+    channel_weights : torch.Tensor | None, optional
+        Weights per channel (in_channels,).
     seed : int, default 42
         Random seed for reproducibility.
 
     Returns
     -------
     list[dict[str, Any]]
-        Ablation report comparing MSE, BCE, and cluster metrics per dimension.
+        Ablation report comparing MSE, Dirichlet structure loss, and cluster metrics per dimension.
     """
     if latent_dims is None:
         latent_dims = [2, 3, 4, 8]
 
     in_channels = x.shape[1]
     results: list[dict[str, Any]] = []
-
-    pos_u, pos_v = edge_index[0], edge_index[1]
 
     for d in latent_dims:
         torch.manual_seed(seed)
@@ -72,21 +76,22 @@ def run_bottleneck_ablation(
             edge_index=edge_index,
             epochs=epochs,
             lr=lr,
+            mask=mask,
+            channel_weights=channel_weights,
         )
 
         # 1. Feature reconstruction MSE
-        mse = float(F.mse_loss(x_hat, x).item())
-
-        # 2. Structure regularization BCE
-        if edge_index.shape[1] > 0:
-            pos_scores = torch.sum(z[pos_u] * z[pos_v], dim=1)
-            bce = float(
-                F.binary_cross_entropy_with_logits(
-                    pos_scores, torch.ones_like(pos_scores)
-                ).item()
-            )
+        if mask is not None:
+            mse = float(F.mse_loss(x_hat[mask], x[mask]).item())
         else:
-            bce = 0.0
+            mse = float(F.mse_loss(x_hat, x).item())
+
+        # 2. Dirichlet smoothness regularization
+        if edge_index.shape[1] > 0:
+            diff = z[edge_index[0]] - z[edge_index[1]]
+            struct_loss = float(torch.mean(torch.sum(diff ** 2, dim=1)).item())
+        else:
+            struct_loss = 0.0
 
         # 3. Latent space clustering quality
         z_np = z.detach().cpu().numpy()
@@ -105,7 +110,8 @@ def run_bottleneck_ablation(
         results.append({
             "latent_dim": d,
             "mse_recon": mse,
-            "bce_struct": bce,
+            "struct_loss": struct_loss,
+            "bce_struct": struct_loss,  # alias for backward compatibility
             "num_clusters": num_clusters,
             "noise_ratio": stats.get("noise_ratio", 0.0),
             "silhouette_score": sil_score,
