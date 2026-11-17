@@ -1,6 +1,6 @@
 # ADR 0001: Unsupervised Graph Attention Autoencoder on Geometric H3 Adjacency for Spatial Disparity Mapping
 
-* **Status**: Accepted (Amended October 2026)
+* **Status**: Accepted (Amended October 2026); Amendment 1 item 1 (MNDWI, AQI channels) and Amendment 2 item 1 (populated mask) superseded by [ADR 0002](0002-reference-epoch-representative-composites-zonal-aggregation.md); benchmark values and Amendment 2 item 3 (P99 winsorization) superseded by [ADR 0003](0003-universal-frozen-benchmarks-and-channel-weighting.md)
 * **Date**: October 2026
 * **Deciders**: Dimas RD
 

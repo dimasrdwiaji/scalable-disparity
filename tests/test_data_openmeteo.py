@@ -1,11 +1,13 @@
 import geopandas as gpd
+import numpy as np
 import pytest
 
 from phys_living_index.data.ingest_context import (
     OPENMETEO_AIR_QUALITY_VARIABLES,
-    batch_locations,
-    fetch_openmeteo_air_quality,
+    build_openmeteo_hourly_params,
+    fetch_openmeteo_hourly_median,
     generate_sampling_grid,
+    summarize_hourly_median,
 )
 
 
@@ -21,19 +23,35 @@ def test_generate_sampling_grid():
         assert 106.80 <= lon <= 106.82
 
 
-def test_batch_locations():
-    points = [(round(0.1 * i, 3), round(0.1 * i, 3)) for i in range(125)]
-    batches = batch_locations(points, max_batch_size=50)
+def test_build_openmeteo_hourly_params_batches_and_dates():
+    points = [(round(0.1 * i, 3), round(0.1 * i, 3)) for i in range(25)]
+    batches = build_openmeteo_hourly_params(points, "2023-01-01", "2023-12-31", max_batch_size=10)
 
     assert len(batches) == 3
-    # Check first batch has 50 points
-    lats = batches[0]["latitude"].split(",")
-    lons = batches[0]["longitude"].split(",")
-    assert len(lats) == 50
-    assert len(lons) == 50
-    # Check last batch has 25 points
-    lats_last = batches[2]["latitude"].split(",")
-    assert len(lats_last) == 25
+    assert len(batches[0]["latitude"].split(",")) == 10
+    assert len(batches[2]["latitude"].split(",")) == 5
+    assert batches[0]["start_date"] == "2023-01-01"
+    assert batches[0]["end_date"] == "2023-12-31"
+    assert "current" not in batches[0]
+
+
+def test_summarize_hourly_median_ignores_missing_hours():
+    items = [{
+        "latitude": -6.2,
+        "longitude": 106.8,
+        "hourly": {"pm2_5": [10.0, None, 30.0, 20.0], "nitrogen_dioxide": [None, None]},
+    }]
+    df = summarize_hourly_median(items, ["pm2_5", "nitrogen_dioxide"])
+
+    assert df.loc[0, "pm2_5_median"] == pytest.approx(20.0)
+    assert df.loc[0, "pm2_5_n_hours"] == 3
+    assert np.isnan(df.loc[0, "nitrogen_dioxide_median"])
+    assert df.loc[0, "nitrogen_dioxide_n_hours"] == 0
+
+
+def test_summarize_hourly_median_raises_without_hourly_block():
+    with pytest.raises(ValueError, match="hourly"):
+        summarize_hourly_median([{"latitude": 0.0, "longitude": 0.0, "current": {}}], ["pm2_5"])
 
 
 def test_non_pollen_variable_list():
@@ -57,17 +75,12 @@ def test_non_pollen_variable_list():
 
 
 @pytest.mark.integration
-def test_live_openmeteo_air_quality_integration(tmp_path):
-    bbox = (106.82, -6.18, 106.83, -6.17)
+def test_live_openmeteo_hourly_median(tmp_path):
     out_parquet = tmp_path / "air_quality.parquet"
 
-    res = fetch_openmeteo_air_quality(bbox, out_parquet, step_deg=0.01)
+    res = fetch_openmeteo_hourly_median([(-6.17, 106.82)], "2023-06-01", "2023-06-07", out_parquet)
     assert res.exists()
 
     gdf = gpd.read_parquet(res)
-    assert len(gdf) > 0
-    assert "pm2_5" in gdf.columns
-    assert "us_aqi" in gdf.columns
-    assert "european_aqi" in gdf.columns
-    # Pollen must be absent
-    assert not any("pollen" in col.lower() for col in gdf.columns)
+    assert len(gdf) == 1
+    assert gdf.loc[0, "pm2_5_n_hours"] > 0

@@ -43,15 +43,28 @@ Measuring socio-spatial inequality and informal living standards in Global South
 ### 1. Introduction (~1,100 words)
 
 #### Problem Statement and Context
-- **Urban Dualism in the Global South**: The coexistence of hyper-dense informal settlements (*kampungs*) and master-planned luxury gated enclaves (*kota mandiri*) separated by physical perimeter walls within hundreds of meters of each other (Dovey et al., 2021; Kuffer et al., 2016).
-- **The Administrative Aggregation Trap (MAUP)**: Official government statistics (e.g., Indonesia’s *Badan Pusat Statistik* / BPS Gini ratios and poverty rates) aggregate data at municipal (*Kabupaten/Kota*) scales, entirely blinding urban planners to acute intra-city inequality (Openshaw, 1984; Reardon & O'Sullivan, 2004).
-- **The Relative Comparison Trap**: Existing machine learning wealth indices (e.g., Meta’s Relative Wealth Index; Chi et al., 2022) predict DHS asset index z-scores relative to national means. A $+1.5$ score in rural Africa reflects a radically different physical reality than $+1.5$ in suburban Java, preventing absolute cross-border comparisons.
-- **Geospatial Data Scarcity and VGI Incompleteness**: In Southeast Asia and the broader Global South, fine-grained socioeconomic and infrastructural datasets are acutely scarce. While globally open volunteered geographic information (VGI, such as OpenStreetMap) is frequently proposed as an alternative, it suffers from severe systemic incompleteness, spatial coverage deserts in peripheral areas, and unclassified geometry (>95% of OSM buildings unclassified in regional Indonesia), compounding the data poverty trap.
+* **Spatial Granularity and Aggregation Mismatch**
+  * Living standard disparities occur locally, where contrasting housing conditions and informal settlements exist adjacent to planned developments within hundreds of meters.
+  * Standard inequality measures, such as the Gini coefficient and official poverty rates, aggregate data to municipal or district levels.
+  * Spatial aggregation (MAUP) smooths local variations, masking intra-municipal disparities and localized segregation.
+* **Cross-Regional Comparability Gap**
+  * Existing neighborhood-level assessments rely on localized surveys and municipal administrative records.
+  * Disparate survey definitions, census boundaries, and collection intervals hinder standardized comparisons of localized disparity across cities and countries.
+  * Standardized cross-regional comparisons require consistent, continuously available measurement frameworks.
+* **Administrative Data Scarcity and Open Geospatial Data**
+  * Emerging economies and rapidly urbanizing regions frequently face administrative data gaps, including incomplete cadastral records and unmapped settlements.
+  * Frameworks reliant on detailed municipal registers cannot scale to data-sparse regions.
+  * Global Earth observation records (Sentinel, Landsat, atmospheric reanalysis) and open spatial geometry datasets (open building heights, street networks, POIs) provide uniform, continuous physical measurements across metropolitan areas without relying on local administrative capacity.
+* **Non-Linear Indicator Interaction and the Need for Unsupervised Learning**
+  * Physical indicators (such as building density, living area per capita, surface temperature, and street network access) exhibit non-linear interactions across urban space (for example, high building density reflects different living standards depending on floor area and tree cover).
+  * Comprehensive, continuous ground-truth labels for composite living conditions and segregation boundaries do not exist across metropolitan areas.
+  * Because supervised training targets are unavailable across continuous space, identifying how these non-linear indicators group into cohesive living standard typologies requires unsupervised representation learning.
+  * A spatial graph neural network learns latent representations directly from the multi-channel indicators and spatial adjacency without requiring training labels.
 
-#### Research Questions and Hypotheses
-- **RQ1**: Can multi-source open remote sensing and open spatial geometries formulate an absolute physical living standard index that is continuous, unsupervised, and comparable across metropolitan boundaries?
-- **RQ2**: Can an unsupervised Graph Attention Autoencoder (GAT-AE) detect micro-scale spatial disparity and segregation boundaries without ground-truth labels?
-- **RQ3**: How do in-situ physical living standards systematically diverge from satellite-predicted consumer asset wealth (Meta RWI) across dense urban morphologies?
+#### Research Questions
+* **RQ1**: How can open Earth observation data and open spatial geometries be formulated into an absolute physical living standard index that is continuous and comparable across administrative boundaries?
+* **RQ2**: How can unsupervised spatial graph representation learning capture non-linear indicator interactions to identify latent physical living typologies and spatial segregation boundaries without ground-truth labels?
+* **RQ3**: To what extent do the unsupervised physical living typologies and segregation boundaries align with local ground-truth deprivation surveys (such as KOTAKU slum registries), and how do they compare with satellite-derived asset wealth estimates?
 
 #### Core Contributions
 - **Index Formulation & Derivation**: Proposing the Physical Living Standard Index (PLSI), a continuous, multidimensional metric grounded in universal, physics-calibrated human settlement indicators (UN-Habitat shelter area, WHO particulate safety, thermal stress, walking catchments) that provides an absolute, transportable baseline across international boundaries.

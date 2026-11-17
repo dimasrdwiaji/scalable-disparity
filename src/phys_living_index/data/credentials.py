@@ -47,3 +47,24 @@ def load_earthdata_token(env_path: Path | str | None = None) -> str | None:
     """
     _init_env(env_path)
     return os.environ.get("NASA_EARTHDATA_TOKEN")
+
+
+def load_gee_project(env_path: Path | str | None = None) -> str | None:
+    """
+    Retrieves the Google Earth Engine Cloud project ID from .env or the system environment.
+
+    If unset, Earth Engine falls back to the project stored with the persistent
+    credentials created by `earthengine authenticate`.
+
+    Parameters
+    ----------
+    env_path : Path | str | None, optional
+        Optional explicit path to the .env file.
+
+    Returns
+    -------
+    str | None
+        The EE_PROJECT string if configured, or None if missing.
+    """
+    _init_env(env_path)
+    return os.environ.get("EE_PROJECT")

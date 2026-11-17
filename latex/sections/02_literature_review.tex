@@ -1,63 +1,91 @@
-\section{Literature Review and Theoretical Framework}
+\section{Literature Review: Indicator and Dataset Vetting}
 
-Evaluating urban living conditions across expanding metropolitan regions in the developing world draws on four complementary fields: remote sensing of socioeconomic indicators, 3D building morphology, pedestrian accessibility modeling, and graph neural networks for spatial anomaly detection. We synthesize these areas into a four-quadrant divergence framework that contrasts asset-based wealth with in-situ physical living standards.
+Evaluating which open global indicators can detect intra-urban deprivation requires systematic vetting rather than assembling every available layer. This section reviews candidate physical, socioeconomic, and spatial-analysis proxies to answer \textbf{RQ1}, establishing which variables distort block-level living conditions and which physical indicators genuinely measure what they claim to measure across Indonesian urban settings.
 
-\subsection{Remote Sensing and Machine Learning for Socioeconomic Estimation}
-Satellite Earth observation has long supported socioeconomic monitoring. Nocturnal luminosity (DMSP and VIIRS) serves as an established proxy for regional economic activity and electrification \citep{Henderson2012, Mellander2015}, but encounters saturation in commercial cores and blooming across unpopulated surfaces \citep{Zhao2019}. To improve spatial resolution, transfer learning models use daytime multi-spectral imagery to predict nighttime radiance, learning visual features that correlate with local survey expenditures \citep{Burke2021, Jean2016, Yeh2020}. Meta's Relative Wealth Index (RWI; \citealt{Chi2022}) scaled this approach to 135 countries at 2.4~km resolution by training gradient-boosted trees on satellite, mobility, and connectivity data against Demographic and Health Surveys (DHS). 
+\subsection{Area-Level Physical Deprivation and Gradual Consolidation}
+International deprivation frameworks such as the Integrated Deprived Area Mapping System (IDEAMAPS; \citealt{Thomson2020}), the Domains of Deprivation framework \citep{Abascal2022a}, and the English Indices of Deprivation \citep{MHCLG2019} separate neighborhood built conditions and micro-environmental quality from household income and demographic characteristics. That separation matters when monitoring physical infrastructure disparities, because asset-wealth surfaces predicted from survey targets and connectivity data, most prominently Meta's Relative Wealth Index \citep{Chi2022}, estimate household durable ownership rather than built housing adequacy \citep{Lilford2017}. Asset-based proxies therefore fall outside the physical domain examined here.
 
-However, survey asset targets capture household durable goods ownership \citep{Rutstein2004}. In dense urban settlements, asset accumulation can decouple from physical living conditions: households may own mobile devices and appliances while residing in overcrowded structures with unpaved access and open drainage canals.
+Early remote sensing studies often reduced informal settlement mapping to a binary split between ``slum'' and ``formal'' areas \citep{Kuffer2016}. As \citet{Dovey2020} show, informal settlements rarely exist in a static binary state; households upgrade structures incrementally over time, replacing timber walls with brick and concrete while narrow alleys and lack of open setback remain unchanged. Greater Jakarta illustrates this gradual consolidation directly. Inner-city \textit{kampungs} adjacent to central districts such as Menteng and Cikini frequently contain multi-story brick dwellings beside narrow footpaths and formal apartment blocks \citep{Hidayati2020, Mardhotillah2018}, whereas suburban settlements in Tangerang range from semi-permanent riverside pockets near industrial corridors to consolidated neighborhoods bordering gated estates \citep{Wardhani2016}. Recognizing that graded reality, official municipal inventories in DKI Jakarta (Governor Regulation No.~90/2018) classify neighborhoods across four severity categories rather than a single cutoff, supporting continuous or multi-domain indicators over binary labels \citep{Abascal2022b}.
 
-\subsection{Built-Environment Morphology and Living Space Sufficiency}
-Urban remote sensing has traditionally identified informal settlements through distinct morphological signatures: dense building configurations, organic street layouts, small footprints, and heterogeneous roofing \citep{Kohli2012, Sliuzas2010}. Early studies framed detection as binary ``slum vs. formal'' image classification \citep{Kuffer2016, Kuffer2020, Wurm2019}. While computationally effective, binary classifications obscure progressive consolidation \citep{Dovey2020} and ignore the multidimensional continuum of living conditions \citep{Abascal2022, Lilford2019}.
+\subsection{Disqualified Proxies: Density Confounding, Coarse Sensors, and Why Accessibility Fails}
+Many open global layers reflect how large or busy a city is rather than inequality within it. In practice, off-the-shelf indicators mislead neighborhood mapping in three common ways. First, overall density is not the same thing as deprivation: luxury high-rise districts and crowded low-income \textit{kampungs} can both show high building density, so density alone cannot separate them \citep{Taubenbock2018}. Second, derived ratios become circular when both the numerator and denominator depend on the same underlying map: if a population grid already allocates people onto cells based on mapped buildings, dividing building area back by that population estimate repeats the building layer rather than measuring actual household crowding. Third, an indicator can flip meaning between dense city centers and the rural fringe \citep{Chakraborty2019a, Stewart2012}: a poor village surrounded by rice paddies or riverside trees looks cool and green in satellite images, whereas a wealthy commercial center looks hot and paved. Comparing neighborhoods only against their urban peers avoids this misleading flip. Across these checks, four physical proxy groups prove unsuitable for neighborhood deprivation mapping, alongside spatial accessibility metrics:
 
-To measure conditions continuously, UN-Habitat \citep{UNHabitat2003, UNHabitat2020} establishes five shelter deprivation criteria: durable construction, access to improved water, adequate sanitation, tenure security, and sufficient living area ($<9.0\text{ m}^2$ per person). Estimating floor area per capita historically proved difficult from 2D overhead imagery. Recent open planetary-scale building datasets, particularly Google Open Buildings v3 \citep{Sirko2021} with 2.5D heights, now enable volumetric morphology estimation across the Global South \citep{Biljecki2023, Biljecki2024}. Intersecting building volumes with ambient population data (WorldPop; \citealt{Tatem2017}) and functional residential masks (JRC GHS-BUILT-C; \citealt{Schiavina2022}) enables continuous estimation of living floor area per capita across regional extents.
+\begin{itemize}
+    \item \textbf{Building-allocated per-capita living space:} Global population grids such as GHSL-POP \citep{Pesaresi2024, Schiavina2023} and WorldPop \citep{Stevens2015} spread census counts down to grid cells mainly by looking at where building volume sits. Dividing residential building volume back by that estimated population to approximate minimum living space per person \citep{UNHabitat2020}, both numbers draw from the same building data. Avoiding this circular loop is critical, because the resulting score mostly reflects the population model's allocation rule rather than real overcrowding inside homes. While population-disaggregation methods are widely published, empirical audits testing this specific intra-urban loop inside living-condition indices remain sparse.
+    \item \textbf{Nighttime light radiance (VIIRS):} Nighttime lights track regional economic output well \citep{Henderson2012, Mellander2015}, yet coarse pixel footprints, light spillover across neighboring areas, and bright city-center saturation obscure darker informal pockets embedded inside bright cities and bias comparisons across secondary towns \citep{Gibson2021, Zhao2019}.
+    \item \textbf{Coarse atmospheric, thermal, and elevation layers:} Satellite-derived fine particulate ($\text{PM}_{2.5}$) estimates operate near 1--5~km resolution suited to regional health studies rather than street-block disparity \citep{vanDonkelaar2021}. Similarly, 1~km MODIS thermal imagery averages across neighboring city blocks \citep{Voogt2003}, and unfiltered global elevation models read tall formal buildings as steep terrain slope \citep{Hawker2022}.
+    \item \textbf{Unmasked building coverage:} Raw building-footprint coverage mixes residential crowding together with large industrial warehouses, port terminals, and shopping malls \citep{Chamberlain2024, Jochem2021, Sirko2021}.
+\end{itemize}
 
-\subsection{Pedestrian Accessibility and Open Spatial Data}
-Physical living standards also depend on spatial access to basic public amenities, including healthcare, education, retail, and green space \citep{Geurs2004, Handy1997}. The ``15-minute city'' concept emphasizes reachable daily services within a 15-minute walk \citep{Moreno2021}. Cumulative opportunity thresholds (destinations within a fixed walking catchment at 4.0~km/h) offer intuitive, policy-relevant metrics compared to gravity models \citep{Hosford2022, Weiss2018}.
+Standard pedestrian accessibility measures, including cumulative 15-minute opportunity counts \citep{Handy1997, Hosford2022, Moreno2021, Weiss2018} and competition-adjusted gravity or Two-Step Floating Catchment Area (2SFCA) scores \citep{Geurs2004, Luo2003}, must also be excluded from the physical deprivation model, even when paired with street-network routing \citep{Boeing2017} and standardized Overture Maps categories \citep{Overture2023, Overture2024}. Two practical barriers explain this decision. First, volunteer-mapped attributes such as public versus private operators, fees, bed counts, and sidewalk presence become scarce outside major city centers \citep{BarringtonLeigh2017, Herfort2023}. Second, spatial proximity does not measure economic access in Indonesian cities. In Jakarta, low-income \textit{kampungs} sit inside central mixed-use areas surrounded by clinics, schools, markets, and transit lines, making residents ``captive pedestrians'' with many nearby destinations yet constrained daily mobility \citep{Hidayati2020}, while wealthier gated estates often sit farther away from busy commercial streets \citep{Firman2004}. Whether low-income households have the financial means or eligibility to use private hospitals or schools nearby cannot be observed from open point-of-interest pins. Without price, quality, and eligibility data, neither cumulative counts nor gravity/2SFCA models separate physical closeness from real ability to use a service, reversing deprivation rankings across central informal settlements.
 
-In fragmented cities, Euclidean buffer distances can substantially overestimate accessibility \citep{Boeing2017}. Rapid suburban expansion frequently situates enclosed master-planned developments beside informal settlements \citep{Dovey2021, Firman2004}. Perimeter walls and highway barriers require multi-kilometer pedestrian detours, making topological network routing essential. While OpenStreetMap enables open routing \citep{Boeing2017}, volunteer contributions remain uneven in peripheral areas \citep{BarringtonLeigh2017}. The Overture Maps Foundation \citep{Overture2023, Overture2024} addresses this gap by combining open registries and algorithmic extraction into a standardized Global Entity Reference System (GERS).
+\subsection{Vetting Built Form, the \texorpdfstring{50~m$^2$}{50 m2} Threshold, and Roof-Material Texture}
+Once factories, warehouses, ports, offices, and commercial halls mapped in OpenStreetMap (OSM) are removed and GHSL residential share is tracked conditionally to separate industrial encroachment \citep{Pesaresi2024}, building geometry provides clear physical signals inside urban cores \citep{Abascal2022b, Jochem2021b, Kuffer2016}. Two geometric indicators stand out from open building footprints: the share of \textbf{small-footprint residential buildings} and nearest-neighbor building spacing \citep{Jochem2021, Taubenbock2018}. Prior remote-sensing studies in Indonesian cities ground the small-footprint boundary around 50--60~m$^2$. \citet{Najmi2022} showed that filtering residential structures below 60~m$^2$ aligns footprint classifications closely with official Indonesian municipal slum maps, supporting local classifications in Bandung \citep{Leonita2018} and building-size criteria reviewed by \citet{Kuffer2016}. Under Indonesian residential planning standards (SNI 03-1733-2004; \citealt{SNI2004}), basic planned formal housing units anchor around dedicated multi-room starter footprints, whereas unbuffered self-built \textit{kampung} houses pack densely below 50~m$^2$ with tight gaps between roofs. Checking $<50\text{ m}^2$ alongside $<60\text{ m}^2$ ties footprint size directly to local housing form without relying on population ratios.
 
-\subsection{Graph Neural Networks and Spatial Anomaly Detection}
-Unsupervised disparity detection across continuous space requires structural learning methods beyond linear spatial autocorrelation statistics \citep{Anselin1995, Reardon2004}. Graph Neural Networks (GNNs), such as Graph Convolutional Networks (GCNs; \citealt{Kipf2016}) and Graph Attention Networks (GATs; \citealt{Velickovic2018}), learn representations over non-Euclidean spatial graphs where hexagonal cells form nodes and geometric adjacency forms edges \citep{Zhang2022}.
+Beyond building size and spacing, contrasting roof materials, such as corrugated metal sheets, asbestos panels, weathered plastic, and patched tiles compared with uniform clay tile or concrete slabs, are an established sign of housing quality deprivation \citep{Kuffer2016, Kuffer2016b, Wurm2017}. A key open-data question is whether free 10~m Sentinel-2 optical imagery can detect that contrast reliably. Because individual small roofs are often smaller than a 10~m pixel, single-roof material classification is impossible. However, Gray-Level Co-occurrence Matrix (GLCM) texture features computed across multi-pixel neighborhood windows capture broader surface variation across roof-and-alley patches in Sentinel-2 imagery \citep{deMattos2021, Wurm2017b}, while avoiding the side-looking geometric distortions that make C-band radar hard to interpret in tight urban blocks \citep{Wurm2017}. Since GLCM restricted to residential footprints has seen limited testing against urban density, residential-masked 10~m Sentinel-2 GLCM is retained as a candidate indicator rather than a confirmed core channel.
 
-Deep GNNs often encounter ``over-smoothing,'' where repeated neighborhood message passing homogenizes node embeddings \citep{Chen2020, Kipf2016}. In unsupervised anomaly detection, this characteristic can be repurposed. By training a Graph Attention Autoencoder (GAT-AE) with a narrow bottleneck ($d=2$) over pure geometric adjacency, the model enforces local spatial continuity. Where an edge crosses an abrupt socio-spatial boundary, message passing aggregates conflicting feature distributions, resulting in elevated reconstruction errors at the interface. Drawing on attributed graph anomaly frameworks (DOMINANT; \citealt{Ding2019}), attributed error decomposition separates built-environment indicators from biophysical land-cover edges:
-\begin{equation}
-\text{Reconstruction Error}_i = \sum_{k=1}^M (x_{ik} - \hat{x}_{ik})^2
-\end{equation}
+\subsection{Micro-Environmental Baselines, Inequality Metrics, and Boundary Models}
+For green and thermal conditions, raw vegetation and temperature readings fail when dense city neighborhoods are compared against distant mountain forests or wet rice paddies \citep{Chakraborty2019a, Stewart2012}. Normalizing Sentinel-2 Normalized Difference Vegetation Index (NDVI) and Landsat land surface temperature ($\Delta\text{LST}$) against each city's own urban built area isolates within-city environmental injustice. in turn showing which neighborhoods face thinner tree cover and hotter surfaces than other similarly-built areas \citep{Chakraborty2019b, Hsu2021}. Sensor scale also shapes dataset selection: neighborhood heat mapping requires multi-year clear-sky composites from 100~m Landsat 8/9 thermal bands rather than 1~km MODIS fallbacks that blur individual blocks \citep{Voogt2003}. Flood-frequency and terrain wetness layers stay out of scope.
 
-\subsection{Theoretical Synthesis: The 4-Quadrant Divergence Framework}
-We synthesize these domains into the \textbf{4-Quadrant Divergence Framework}, conceptualizing urban space along two axes: Consumer Asset Wealth (Meta RWI) and In-Situ Physical Living Standards (PLSI).
+When combining built-form and micro-environmental scores, simple unweighted averages let generous tree canopy hide severe residential crowding, so domains are validated separately first and combined using penalty-adjusted aggregation that penalizes extreme imbalance \citep{Mazziotta2016, OECD2008}. Over an urban-masked H3 hexagonal grid, citywide inequality summaries adapted from \texttt{greenR} \citep{Mahajan2024} and spatial Gini analysis \citep{Rey2013}, hexagonal Gini coefficients and Lorenz curves, quantify how unevenly physical quality is distributed across the city. Because inequality curves only describe spread across space without telling us who experiences deprivation, they must be paired with known-group validation against official records. Finally, to test whether deep graph models locate formal--informal boundaries more sharply than classical spatial statistics, an unsupervised Graph Attention Autoencoder (GAT-AE; \citealt{Salehi2020, Velickovic2018}) tracing which indicators drive abrupt jumps between neighboring cells \citep{Ding2019} must be benchmarked directly against Local Indicators of Spatial Association (LISA; \citealt{Anselin1995}) and spatial gradients under spatially blocked cross-validation \citep{Roberts2017}, as direct comparisons on informal settlement boundaries remain scarce.
+
+\subsection{Conceptual Synthesis: Built Form vs. Micro-Environment Typology}
+Replacing earlier wealth-versus-living-standard comparisons with strictly physical, vetted dimensions yields a clear two-axis typology across urban space (Figure~\ref{fig:quadrant_typology}). The vertical axis tracks residential built form ($y+$: formal residential fabric with larger footprints, wider spacing, and uniform roofs; $y-$: informal residential fabric dominated by small-footprint residential buildings, tight packing, and mixed roofing). The horizontal axis tracks intra-urban micro-environmental buffering ($x+$: vegetated canopy and neutral or cooler urban surface temperatures; $x-$: canopy deficit and elevated intra-urban surface heat). Keeping these two dimensions separate explains why single-indicator maps misclassify neighborhoods---for instance, mistaking greener peri-urban \textit{kampungs} (Quadrant~III) for adequate housing or confusing hot, paved formal commercial districts (Quadrant~II) with slums---and motivates checking both domains separately before boundary testing.
 
 \begin{figure}[htbp]
 \centering
-\begin{verbatim}
-                  High Physical Living Standard (PLSI)
-                                  ▲
-                                  │
-                 Quadrant III     │     Quadrant I
-            (Subsidized Formal /  │ (Integrated Affluent /
-             Well-Serviced Low-   │  Master-Planned Enclaves)
-             Income Peripheries)  │
-                                  │
-◄─────────────────────────────────┼─────────────────────────────────►
-Low Asset Wealth (Meta RWI)       │       High Asset Wealth (Meta RWI)
-                                  │
-                 Quadrant II      │     Quadrant IV
-            (Unserviced Informal  │  (Asset-Dense, Infrastructure-
-             Deprivation / Rural  │   Deprived Informal Settlements)
-             Poverty)             │
-                                  ▼
-                   Low Physical Living Standard (PLSI)
-\end{verbatim}
-\caption{The 4-Quadrant Divergence Framework contrasting asset-based wealth with in-situ physical living standards.}
-\label{fig:four_quadrant_framework}
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[scale=0.95, every node/.style={font=\small}]
+    % Axes
+    \draw[->, thick] (-4.9,0) -- (4.9,0) node[right, align=left] {$x+$: Buffered Environment\\(Higher NDVI, Lower $\Delta$LST)};
+    \draw[<-, thick] (-4.9,0) -- (0,0);
+    \node[left, align=right] at (-4.9,0) {$x-$: Stressed Environment\\(Canopy Deficit, High $\Delta$LST)};
+
+    \draw[->, thick] (0,-3.2) -- (0,3.2) node[above, align=center] {$y+$: Formal Residential Fabric\\(Larger Footprints, Wider Spacing, Uniform Roofs)};
+    \draw[<-, thick] (0,-3.2) -- (0,0);
+    \node[below, align=center] at (0,-3.2) {$y-$: Informal Residential Fabric\\(Small-Footprint Buildings, Tight Packing, Mixed Roofs)};
+
+    % Quadrants
+    \node[draw, rounded corners, fill=green!6, text width=4.1cm, align=center] at (2.45, 1.7)
+        {\textbf{Quadrant I ($x+, y+$)}\\Formal Buffered Enclaves\\{\footnotesize Planned estates, tree canopy, cooler micro-climate}};
+
+    \node[draw, rounded corners, fill=orange!8, text width=4.1cm, align=center] at (-2.45, 1.7)
+        {\textbf{Quadrant II ($x-, y+$)}\\Formal Hardscape Districts\\{\footnotesize Planned paved blocks, low canopy, urban heat stress}};
+
+    \node[draw, rounded corners, fill=blue!6, text width=4.1cm, align=center] at (2.45, -1.7)
+        {\textbf{Quadrant III ($x+, y-$)}\\Vegetated / Transitional Informal\\{\footnotesize Tight small-footprint housing inside greener peri-urban edges}};
+
+    \node[draw, rounded corners, fill=red!7, text width=4.1cm, align=center] at (-2.45, -1.7)
+        {\textbf{Quadrant IV ($x-, y-$)}\\Compound Urban Deprivation\\{\footnotesize Cramped inner-city \textit{kampungs} with canopy loss and heat stress}};
+\end{tikzpicture}%
+}
+\caption{Physical typology separating residential built form ($y+$ formal vs. $y-$ informal) from intra-urban micro-environmental buffering ($x+$ vegetated/cool vs. $x-$ heat-stressed/treeless).}
+\label{fig:quadrant_typology}
 \end{figure}
 
-\begin{itemize}
-    \item \textbf{Quadrant I (High Asset, High Physical)}: Formal residential communities with large dwelling areas, tree cover, and walkable amenities.
-    \item \textbf{Quadrant II (Low Asset, Low Physical)}: Unplanned settlements and impoverished peri-urban areas lacking private assets and public services.
-    \item \textbf{Quadrant III (Low Asset, High Physical)}: Subsidized public housing with modest household assets but planned dwelling volumes, drainage, and paved access.
-    \item \textbf{Quadrant IV (High Asset, Low Physical)}: Established dense informal settlements where households hold durable goods (appliances, vehicles) but endure floor-space deprivation ($<9.0\text{ m}^2$), open drainage, and elevated particulate air pollution.
-\end{itemize}
+\subsection{Summary of Indicator and Dataset Vetting (RQ1)}
+Table~\ref{tab:vetting_matrix} summarizes the indicator-vetting outcomes addressing RQ1 and fixes the candidate input pool entering Stage~3 evaluation.
 
-Supervised models trained on survey asset indices often conflate Quadrant IV with Quadrant I, obscuring local infrastructure deficits. The unsupervised PLSI framework provides an empirical tool to evaluate both dimensions independently.
+\begin{table}[htbp]
+\centering
+\caption{Summary of Indicator and Open Global Dataset Vetting Outcomes (RQ1).}
+\label{tab:vetting_matrix}
+\footnotesize
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{3.0cm}>{\raggedright\arraybackslash}p{2.3cm}>{\raggedright\arraybackslash}X l >{\raggedright\arraybackslash}p{2.8cm}@{}}
+\toprule
+\textbf{Indicator / Domain} & \textbf{Global Dataset} & \textbf{Primary Vetting Finding} & \textbf{Decision} & \textbf{Basis} \\
+\midrule
+Small-footprint residential buildings & Google / Vida Buildings + OSM mask & Separates informal subdivision ($<50$--$60\text{ m}^2$) from non-residential & \textbf{Retained} & \citet{Kuffer2016, Najmi2022} \\
+Nearest-neighbor roof spacing & Masked Open Buildings & Captures tight packing inside dense urban cores & \textbf{Retained} & \citet{Jochem2021, Taubenbock2018} \\
+Residential built-up share & EC JRC GHSL & Flags industrial/port encroachment (urban core conditional) & \textbf{Conditional} & \citet{Pesaresi2024} \\
+Roof-material texture (GLCM) & Sentinel-2 (10~m, masked) & Neighborhood heterogeneity proxy; SAR distortion avoided & \textbf{Candidate} & \citet{deMattos2021, Wurm2017b} \\
+Vegetative canopy (NDVI) & Sentinel-2 (10~m) & Urban-masked green deficit; flips in rural floodplains & \textbf{Retained} & \citet{Chakraborty2019b, Hsu2021} \\
+Intra-urban surface heat ($\Delta\text{LST}$) & Landsat 8/9 (100~m) & Urban-baseline heat anomaly; avoids 1~km MODIS blur & \textbf{Retained} & \citet{Chakraborty2019a, Voogt2003} \\
+Per-capita living space ($R_{\text{space}}$) & GHS-POP / WorldPop & Circular loop with input building volume & \textbf{Excluded} & \citet{Pesaresi2024, Stevens2015} \\
+Nighttime radiance ($E_{\text{night}}$) & NASA VIIRS & Spillover, core saturation, macro-density scaling & \textbf{Excluded} & \citet{Gibson2021, Zhao2019} \\
+Air quality ($\text{PM}_{2.5}$ / $\text{NO}_2$) & S5P / Open-Meteo & Too coarse ($\sim$1--5~km) for neighborhood contrast & \textbf{Excluded} & \citet{vanDonkelaar2021} \\
+Unmasked plan coverage / slope & Raw footprints / GLO-30 & Confounds malls/warehouses and tall towers as slope & \textbf{Excluded} & \citet{Chamberlain2024, Hawker2022} \\
+Service proximity (15-min / 2SFCA) & Overture / OSM POIs & Lacks affordability/quality; inverts in central \textit{kampungs} & \textbf{Excluded} & \citet{Herfort2023, Hidayati2020} \\
+\bottomrule
+\end{tabularx}
+\end{table}

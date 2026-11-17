@@ -17,6 +17,27 @@ import duckdb
 # Current stable Overture Maps release partition on AWS S3
 DEFAULT_OVERTURE_RELEASE: str = "2026-10-21.0"
 
+OVERTURE_EXPANDED_AMENITY_CATEGORIES: list[str] = [
+    # Daily retail, markets, sembako, shops
+    "convenience_store", "grocery_store", "supermarket", "shopping",
+    "clothing_store", "marketplace", "kiosk", "general_store", "department_store",
+    "shopping_mall", "bakery", "commercial.supermarket_grocery",
+    # Food, warung, restaurants, warkop
+    "restaurant", "indonesian_restaurant", "fast_food_restaurant", "cafe",
+    "coffee_shop", "food_court", "chicken_restaurant", "asian_restaurant",
+    # Healthcare & daily essentials
+    "hospital", "clinic", "pharmacy", "dentist", "bank_or_credit_union", "atm",
+    "post_office", "government_office", "social_or_community_service",
+    "healthcare.hospital", "healthcare.clinic",
+    # Education
+    "school", "elementary_school", "preschool", "college_university", "education",
+    "education.school",
+    # ALL Places of worship (Muslim, Christian, Hindu, Buddhist, generic)
+    "muslim_place_of_worship", "christian_place_of_worship", "place_of_worship",
+    "hindu_temple", "buddhist_temple", "church", "mosque", "temple", "synagogue",
+    "religious_organization",
+]
+
 
 def get_duckdb_spatial_connection() -> duckdb.DuckDBPyConnection:
     """
@@ -36,8 +57,6 @@ def get_duckdb_spatial_connection() -> duckdb.DuckDBPyConnection:
     con.execute("INSTALL httpfs; LOAD httpfs;")
     con.execute("SET s3_region = 'us-west-2';")
     con.execute("SET s3_url_style = 'path';")
-    con.execute("SET http_retries = 5;")
-    con.execute("SET http_timeout = 60000;")
     return con
 
 
@@ -82,12 +101,7 @@ def build_overture_amenities_query(
         FROM read_parquet('s3://overturemaps-us-west-2/release/{release}/theme=places/type=place/*', hive_partitioning=true)
         WHERE bbox.xmin >= {min_lon} AND bbox.xmax <= {max_lon}
           AND bbox.ymin >= {min_lat} AND bbox.ymax <= {max_lat}
-          AND (
-              coalesce(taxonomy.primary, basic_category) IN (
-                  'school', 'hospital', 'clinic', 'supermarket', 'grocery_store',
-                  'education.school', 'healthcare.hospital', 'healthcare.clinic', 'commercial.supermarket_grocery'
-              )
-          )
+          AND coalesce(taxonomy.primary, basic_category) IN ('convenience_store', 'grocery_store', 'supermarket', 'shopping', 'clothing_store', 'marketplace', 'kiosk', 'general_store', 'department_store', 'shopping_mall', 'bakery', 'commercial.supermarket_grocery', 'restaurant', 'indonesian_restaurant', 'fast_food_restaurant', 'cafe', 'coffee_shop', 'food_court', 'chicken_restaurant', 'asian_restaurant', 'hospital', 'clinic', 'pharmacy', 'dentist', 'bank_or_credit_union', 'atm', 'post_office', 'government_office', 'social_or_community_service', 'healthcare.hospital', 'healthcare.clinic', 'school', 'elementary_school', 'preschool', 'college_university', 'education', 'education.school', 'muslim_place_of_worship', 'christian_place_of_worship', 'place_of_worship', 'hindu_temple', 'buddhist_temple', 'church', 'mosque', 'temple', 'synagogue', 'religious_organization')
         UNION ALL
         SELECT 
             id, 
@@ -137,7 +151,7 @@ def build_overture_transportation_query(
             id, 
             class, 
             subtype,
-            geometry
+            ST_GeomFromWkb(geometry) AS geometry
         FROM read_parquet('s3://overturemaps-us-west-2/release/{release}/theme=transportation/type=segment/*', hive_partitioning=true)
         WHERE bbox.xmin >= {min_lon} AND bbox.xmax <= {max_lon}
           AND bbox.ymin >= {min_lat} AND bbox.ymax <= {max_lat}

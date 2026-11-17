@@ -21,12 +21,15 @@ wheels/
 *.egg
 *.pyc
 .ruff_cache/
+.claude/
+cache/
 
 # Virtual environments
 .venv/
 env/
 venv/
 ENV/
+uv.lock
 
 # Data files (Cloud-native datasets should be stored locally or fetched on-demand)
 data/raw/*

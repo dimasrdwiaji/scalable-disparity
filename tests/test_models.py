@@ -81,6 +81,43 @@ def test_train_gat_autoencoder_convergence():
     assert x_hat_final.shape == (num_nodes, in_channels)
 
 
+def test_train_gat_autoencoder_masked_and_channel_weighted():
+    torch.manual_seed(42)
+    num_nodes = 30
+    in_channels = 10
+    latent_dim = 2
+
+    src = torch.arange(num_nodes)
+    dst = (src + 1) % num_nodes
+    edge_index = torch.stack([torch.cat([src, dst]), torch.cat([dst, src])], dim=0)
+
+    x = torch.rand((num_nodes, in_channels))
+    # Active mask for half the nodes
+    mask = torch.zeros(num_nodes, dtype=torch.bool)
+    mask[:15] = True
+
+    channel_weights = torch.ones(in_channels, dtype=torch.float32)
+    channel_weights[0] = 2.0  # Emphasize living space sufficiency
+
+    model = SpatialGATAutoencoder(in_channels=in_channels, hidden_dim=16, latent_dim=latent_dim)
+
+    history, z_final, x_hat_final = train_gat_autoencoder(
+        model=model,
+        x=x,
+        edge_index=edge_index,
+        epochs=25,
+        lr=0.01,
+        mask=mask,
+        channel_weights=channel_weights,
+        loss_weights={"reconstruction": 1.0, "structure": 0.1},
+    )
+
+    assert len(history) == 25
+    assert history[-1]["total_loss"] < history[0]["total_loss"]
+    assert z_final.shape == (num_nodes, latent_dim)
+    assert x_hat_final.shape == (num_nodes, in_channels)
+
+
 def test_attributed_error_decomposition_and_edge_friction():
     num_nodes = 20
     in_channels = 10

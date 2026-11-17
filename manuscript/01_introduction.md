@@ -1,69 +1,94 @@
-# Scalable GeoAI for Measuring Micro-Scale Physical Living Standards and Spatial Disparities: Integrating Open Buildings, Standardized Point-of-Interest Data, and Graph Attention Autoencoders
+# Mapping Micro-Scale Intra-Urban Physical Deprivation, Environmental Inequality, and Spatial Boundaries in the Global South Using Open Earth Observation and Graph Attention
 
-**Author**: Dimas RD  
-**Affiliation**: Urban Informatics and Spatial Artificial Intelligence Laboratory  
-**Target Venue**: *ISPRS International Journal of Geo-Information* (IJGI) / *PLOS ONE* / EarthArXiv  
-**Standard**: Publication Manual of the American Psychological Association (7th ed.; APA 7)  
+**Author**: Dimas RD
 
 ---
 
 ### Abstract
-Measuring socio-spatial disparities and physical living conditions in rapidly urbanizing regions of the Global South is constrained by spatial data scarcity, administrative boundary aggregation, and the relative normalization of survey-based wealth models. This study presents an unsupervised GeoAI framework that maps physical living standards and identifies micro-scale spatial discontinuities across the 12,800 km² Jabodetabek metropolitan region and Karawang Regency, Indonesia. We combine Google Open Buildings v3 (2.5D building heights) intersected with European Commission JRC GHS-BUILT-C residential masks, Overture Maps Foundation points of interest (POIs), Sentinel-2 multi-spectral indices, Landsat land surface temperature, Open-Meteo air quality reanalysis, and NASA VIIRS nighttime radiance onto 17,300 Uber H3 Resolution 8 hexagonal cells (~0.74 km²). We formulate a 10-dimensional Physical Living Standard Index (PLSI) calibrated against international shelter, environmental health, and pedestrian accessibility guidelines (UN-Habitat 9.0 m² living area baseline, WHO PM2.5 guidelines, and 15-minute walking catchments). To detect spatial boundaries without ground-truth training labels, we deploy a Spatial Graph Attention Autoencoder (GAT-AE) over hexagonal geometric adjacency. Constraining latent dimensionality (d = 2) encourages local spatial continuity, causing reconstruction error to increase where abrupt feature differences occur across physical and social boundaries dividing master-planned residential developments from dense informal settlements. Attributed error decomposition distinguishes socio-spatial boundaries from natural land-cover transitions. A four-quadrant comparison against Meta's Relative Wealth Index illustrates that asset-based measures can diverge from in-situ physical living conditions in dense, asset-holding informal neighborhoods. This framework provides urban and regional planners with an auditable, continuous instrument to evaluate physical living conditions without survey lag.
+*[Placeholder: The abstract will be written after all empirical analyses, inequality evaluations, and spatial boundary benchmarks are completed.]*
 
-*Keywords*: GeoAI, spatial segregation, informal settlements, Graph Attention Networks, H3 discrete global grid, Overture Maps, urban living standards, Global South, urban planning.
+*Keywords*: *[Placeholder: Keywords to be finalized after remaining sections are complete.]*
 
 ---
 
 # 1. Introduction
 
-Rapid urbanization across the Global South has produced fragmented urban landscapes where dense informal settlements (such as Latin American *favelas*, South Asian *bustees*, or Southeast Asian *kampungs*) frequently neighbor master-planned residential enclaves and commercial centers (Dovey et al., 2021; Kuffer et al., 2016). In metropolitan regions such as Greater Jakarta (Jabodetabek), Indonesia—inhabited by over 35 million people—adjacent neighborhoods exhibit measurable disparities in residential volume, open green space, pedestrian connectivity, and environmental exposure. Tracking these micro-scale differences remains challenging for planning authorities who require consistent, fine-grained spatial evidence.
+Physical living conditions in growing cities rarely change smoothly across administrative districts. High-density informal settlements—often called *kampungs* in Indonesia—frequently border formal housing estates and commercial centers directly ([Kuffer et al., 2016](https://doi.org/10.3390/rs8060455); [Taubenböck et al., 2018](https://doi.org/10.1016/j.apgeog.2018.02.002)). Greater Jakarta (Jabodetabek) illustrates this proximity clearly. Gated residential developments and apartment blocks stand immediately adjacent to low-income *kampungs*, divided only by perimeter walls or arterial streets in central neighborhoods such as Menteng and Cikini as well as in suburban Tangerang ([Hidayati et al., 2020](https://doi.org/10.1080/17549175.2020.1814391); [Mardhotillah & Gamal, 2018](https://doi.org/10.14716/ijtech.v9i7.2519); [Wardhani, 2016](https://doi.org/10.18196/jgp.2016.0025)).
 
-## 1.1 Spatial Data Scarcity in Developing Regions
-Evaluating micro-scale disparities is constrained by the scarcity of fine-grained spatial data across many low- and middle-income regions (Abascal et al., 2022). Unlike high-income settings with detailed municipal property registries and frequent census updates, developing cities often rely on decennial censuses aggregated to coarse administrative boundaries. This administrative aggregation introduces the Modifiable Areal Unit Problem (MAUP; Openshaw, 1984), obscuring local variations across contiguous streets (Reardon & O'Sullivan, 2004). While crowdsourced spatial data—primarily OpenStreetMap (OSM)—partially address census gaps, volunteered geographic information displays spatial unevenness and attribute incompleteness in peripheral and informal areas (Barrington-Leigh & Millard-Ball, 2017).
+## 1.1 Detecting Intra-Urban Disparity with Open Data
+Locating these block-scale differences supports slum upgrading, infrastructure planning, and heat mitigation ([Abascal et al., 2022a](https://doi.org/10.1016/j.compenvurbsys.2022.101770); [Chakraborty et al., 2019](https://doi.org/10.1088/1748-9326/ab3b99); [Hsu et al., 2021](https://doi.org/10.1038/s41467-021-22799-5); [Leonita et al., 2018](https://doi.org/10.3390/rs10101522)). When conditions are reported only as municipal or district averages, contrasting neighborhoods cancel each other out, hiding deprived pockets inside statistically affluent districts (Openshaw, 1984; [Reardon & O'Sullivan, 2004](https://doi.org/10.1111/j.0081-1750.2004.00150.x)). Spatial indicators mapped onto uniform hexagonal grids, paired with urban inequality summaries such as Gini or Palma ratios ([Mahajan, 2024](https://doi.org/10.1016/j.ecolind.2024.112108); [Rey & Smith, 2013](https://doi.org/10.1007/s12076-012-0086-z)), make both localized deficits and citywide dispersion visible.
 
-## 1.2 Characteristics of Supervised Machine Learning Wealth Indices
-Recent advances in Earth observation and machine learning have enabled large-scale estimation of socioeconomic indicators (Burke et al., 2021; Chi et al., 2022; Jean et al., 2016). Meta's Relative Wealth Index (RWI; Chi et al., 2022) provides a prominent example, predicting wealth at 2.4 km resolution across 135 countries using satellite imagery, mobile connectivity, and demographic surveys. 
+Across much of the Global South, however, detailed municipal cadastres, sub-district housing registries, and commercial very-high-resolution imagery are incomplete, outdated, or restricted ([Herfort et al., 2023](https://doi.org/10.1038/s41467-023-39698-6); [Thomson et al., 2020](https://doi.org/10.3390/socsci9050080)). Monitoring tools therefore have to rely on globally open Earth observation and open vector datasets. Even open data require scrutiny before entering a model. Coarse atmospheric or thermal products blur street-level contrasts ([van Donkelaar et al., 2021](https://doi.org/10.1021/acs.est.1c05309); [Voogt & Oke, 2003](https://doi.org/10.1016/S0034-4257(03)00079-8)), population grids and nighttime lights tend to follow overall built density rather than local housing quality ([Gibson et al., 2021](https://doi.org/10.1016/j.jdeveco.2020.102602); [Pesaresi et al., 2024](https://doi.org/10.1080/17538947.2024.2390454)), and raw amenity counts can invert when central *kampungs* sit surrounded by busy commercial streets while wealthier gated estates sit farther away ([Hidayati et al., 2020](https://doi.org/10.1080/17549175.2020.1814391)).
 
-While valuable for regional screening, supervised wealth models exhibit two notable characteristics in urban settings:
-1. **Relative Metric Normalization**: Because training targets derive from within-country Demographic and Health Surveys (DHS) normalized to national z-scores, RWI reflects relative economic rank within a given country rather than an absolute physical living standard, complicating cross-border comparisons.
-2. **Decoupling of Asset Ownership and Built Environment**: Survey asset indices measure consumer durable ownership (e.g., phones, appliances, vehicles; Rutstein & Johnson, 2004). In dense informal settlements, households may possess consumer electronics while experiencing pronounced floor-space constraints (<9.0 m² per person), unpaved alleys, open drainage canals, and elevated ambient air pollution. Asset-based models classify these areas as relatively affluent, capturing private consumer capital rather than neighborhood physical environmental conditions (Blumenstock et al., 2015).
+## 1.2 Indicator Vetting and Analytical Scope
+Because misleading inputs corrupt downstream inequality maps and clustering models alike, indicator selection cannot rely on data availability alone. This study treats literature-based **indicator vetting** as a core methodological step rather than background context. Candidate physical, environmental, and accessibility datasets are evaluated against four practical screening checks before modeling: whether pixel or polygon size captures individual city blocks, whether derived ratios avoid circular calculations against building-allocated population grids or overall urban density, whether farmland or non-residential land uses flip the direction of the signal, and whether crowdsourced tags leave out poorer or secondary-city neighborhoods ([Barrington-Leigh & Millard-Ball, 2017](https://doi.org/10.1371/journal.pone.0180698); [Herfort et al., 2023](https://doi.org/10.1038/s41467-023-39698-6); [Schiavina et al., 2023](https://doi.org/10.2760/098587)).
 
-## 1.3 Research Objectives and Contributions
-This study introduces an unsupervised GeoAI framework that integrates open remote sensing and spatial geometry to map physical living standards and identify micro-scale spatial boundaries. We address three research questions:
-- **RQ1**: How can multi-source open remote sensing and open spatial geometries formulate an unsupervised, continuous Physical Living Standard Index comparable across administrative boundaries?
-- **RQ2**: Can an unsupervised Graph Attention Autoencoder (GAT-AE) detect micro-scale spatial disparity and segregation boundaries without ground-truth labels?
-- **RQ3**: How do in-situ physical living standards diverge from satellite-predicted consumer asset wealth (Meta RWI) across dense urban residential morphologies?
+Section 2 conducts this full vetting review to establish which datasets warrant inclusion and what cutoffs or spatial masks they require, narrowing the scope to area-level built form and micro-environmental quality rather than consumer asset models such as Meta's Relative Wealth Index ([Chi et al., 2022](https://doi.org/10.1073/pnas.2113658119)), household crowding ratios, or service-proximity accessibility indices (which Section 2 excludes due to missing affordability data and proximity inversion in central *kampungs*). On an Uber H3 Resolution-8 grid (`~531 m` edge length) covering Mainland DKI Jakarta, Karawang, and an external hold-out city, the vetted feature pool covers two physical domains: residential built form (small-footprint residential buildings, nearest-neighbor building spacing, residential built-up share, and candidate Sentinel-2 roof-texture metrics) and intra-urban green-thermal conditions (Sentinel-2 canopy greenness and `100 m` Landsat thermal anomalies referenced against each city's urban extent). Each retained variable is first examined on its own to see how well it identifies informal areas and what side of disparity it explains, before combining validated domains so strength in one area cannot mask severe deficits in another ([Mazziotta & Pareto, 2016](https://doi.org/10.1007/s11205-015-0998-2); [OECD/EC-JRC, 2008](https://doi.org/10.1787/9789264043466-en)). We also compute urban-masked hexagonal inequality metrics and test whether an unsupervised Spatial Graph Attention Autoencoder (GAT-AE; [Salehi & Davulcu, 2020](https://doi.org/10.1109/ICTAI50040.2020.00154); [Veličković et al., 2018](https://doi.org/10.48550/arXiv.1710.10903)) with a two-dimensional bottleneck (`d = 2`) outperforms Local Indicators of Spatial Association (LISA; [Anselin, 1995](https://doi.org/10.1111/j.1538-4632.1995.tb00338.x)) and linear spatial gradients under spatially blocked cross-validation ([Roberts et al., 2017](https://doi.org/10.1111/ecog.02881)).
 
-We make four primary contributions:
-1. **Formulation of the Physical Living Standard Index (PLSI)**: A continuous metric spanning 10 physical dimensions calibrated against international shelter (UN-Habitat 9.0 m² baseline), environmental health (WHO air quality), and 15-minute walking catchments.
-2. **Unsupervised Boundary Detection via Spatial GAT-AE**: Repurposing network over-smoothing through a low-dimensional bottleneck ($d=2$) over hexagonal spatial adjacency (Uber H3 Res 8, ~0.74 km²) to highlight socio-spatial severance, accompanied by attributed error decomposition.
-3. **Open Spatial Data Integration**: An open pipeline harmonizing Google Open Buildings v3 (2.5D heights), Overture Maps standardized points of interest, and open satellite observations (Sentinel-2, Landsat, VIIRS).
-4. **Planning Utility**: Application of the Spatial Palma Ratio and a 4-quadrant divergence framework (Asset Wealth vs. Physical Living Standards) to support targeted municipal infrastructure investments.
+## 1.3 Research Questions
+Three research questions structure the investigation:
+1. **RQ1**: Which open physical and environmental indicators—and their associated global datasets—are suitable for identifying intra-urban deprivation once vetted for spatial resolution, density scaling, non-residential mixing, and proximity bias?
+2. **RQ2**: How does each vetted indicator perform on its own—and when combined across physical domains without allowing surpluses to mask deficits—in identifying informal settlements, explaining different sides of neighborhood disparity, and describing citywide inequality?
+3. **RQ3**: Does an unsupervised Spatial GAT-AE built on these vetted indicators isolate formal–informal neighborhood boundaries more accurately than classical spatial statistics under spatially blocked cross-validation, and how consistently does the method transfer across severity grades and an external city?
 
-The remainder of this paper is structured as follows: Section 2 reviews related literature and introduces the theoretical framework. Section 3 outlines the study area and data ingestion pipeline. Section 4 presents the feature engineering and Spatial GAT-AE architecture. Section 5 evaluates empirical results and validation benchmarks. Section 6 discusses planning implications and data limitations. Section 7 concludes with considerations for global transferability.
+Section 2 answers RQ1 through the indicator-vetting literature review; Section 3 describes the study areas and open-data preparation; Section 4 details per-indicator validation, inequality metrics, and the GAT-AE benchmark; and Sections 5–7 present empirical results, limitations, and conclusions.
 
 ---
 
-### Section 1 References
+### Section 1 Verified References
 
-Abascal, E., Rothwell, R., Shonowo, A., et al. (2022). "Slum" severity index: A framework to assess spatial inequality in informal settlements. *Habitat International*, 123, 102554. https://doi.org/10.1016/j.habitatint.2022.102554
+Abascal, Á., Rothwell, N., Shonowo, A., Thomson, D. R., Elias, P., Elsey, H., Yeboah, G., & Kuffer, M. (2022a). "Domains of deprivation framework" for mapping slums, informal settlements, and other deprived areas in LMICs to improve urban planning and policy: A scoping review. *Computers, Environment and Urban Systems*, 93, 101770. [https://doi.org/10.1016/j.compenvurbsys.2022.101770](https://doi.org/10.1016/j.compenvurbsys.2022.101770)
 
-Barrington-Leigh, C., & Millard-Ball, A. (2017). The world's user-generated road map is more than 80% complete. *PLOS ONE*, 12(8), e0180698. https://doi.org/10.1371/journal.pone.0180698
+Anselin, L. (1995). Local Indicators of Spatial Association—LISA. *Geographical Analysis*, 27(2), 93–115. [https://doi.org/10.1111/j.1538-4632.1995.tb00338.x](https://doi.org/10.1111/j.1538-4632.1995.tb00338.x)
 
-Blumenstock, J., Cadamuro, G., & On, R. (2015). Predicting poverty and wealth from mobile phone metadata. *Science*, 350(6264), 1073–1077. https://doi.org/10.1126/science.aac4420
+Barrington-Leigh, C., & Millard-Ball, A. (2017). The world's user-generated road map is more than 80% complete. *PLOS ONE*, 12(8), e0180698. [https://doi.org/10.1371/journal.pone.0180698](https://doi.org/10.1371/journal.pone.0180698)
 
-Burke, M., Driscoll, A., Lobell, D. B., & Ermon, S. (2021). Using satellite imagery to understand and promote sustainable development. *Science*, 371(6535), eabe8628. https://doi.org/10.1126/science.abe8628
+Chakraborty, T., Hsu, A., Manya, D., & Sheriff, G. (2019). Disproportionately higher exposure to urban heat in lower-income neighborhoods: A multi-city perspective. *Environmental Research Letters*, 14(10), 105003. [https://doi.org/10.1088/1748-9326/ab3b99](https://doi.org/10.1088/1748-9326/ab3b99)
 
-Chi, G., Fang, H., Chatterjee, S., & Blumenstock, J. E. (2022). Microestimating poverty with equity. *Proceedings of the National Academy of Sciences*, 119(3), e2113658119. https://doi.org/10.1073/pnas.2113658119
+Chi, G., Fang, H., Chatterjee, S., & Blumenstock, J. E. (2022). Microestimates of wealth for all low- and middle-income countries. *Proceedings of the National Academy of Sciences*, 119(3), e2113658119. [https://doi.org/10.1073/pnas.2113658119](https://doi.org/10.1073/pnas.2113658119)
 
-Dovey, K., Pafka, E., & Ristic, M. (2021). *Mapping urbanities: Morphologies, flows, possibilities*. Routledge.
+Gibson, J., Olivia, S., Boe-Gibson, G., & Li, C. (2021). Which night lights data should we use in economics, and where? *Journal of Development Economics*, 149, 102602. [https://doi.org/10.1016/j.jdeveco.2020.102602](https://doi.org/10.1016/j.jdeveco.2020.102602)
 
-Jean, N., Burke, M., Xie, M., Davis, W. M., Lobell, D. B., & Ermon, S. (2016). Combining satellite imagery and machine learning to predict poverty. *Science*, 353(6301), 790–794. https://doi.org/10.1126/science.aaf7894
+Herfort, B., Lautenbach, S., Porto de Albuquerque, J., Anderson, J., & Zipf, A. (2023). A spatio-temporal analysis investigating completeness and inequalities of global urban building data in OpenStreetMap. *Nature Communications*, 14, 3985. [https://doi.org/10.1038/s41467-023-39698-6](https://doi.org/10.1038/s41467-023-39698-6)
 
-Kuffer, M., Pfeffer, K., Sliuzas, R., & Baud, I. (2016). Slums from space—15 years of slum mapping using remote sensing. *Remote Sensing*, 8(6), 455. https://doi.org/10.3390/rs8060455
+Hidayati, I., Yamu, C., & Tan, W. (2020). Realised pedestrian accessibility of an informal settlement in Jakarta, Indonesia. *Journal of Urbanism: International Research on Placemaking and Urban Sustainability*. [https://doi.org/10.1080/17549175.2020.1814391](https://doi.org/10.1080/17549175.2020.1814391)
+
+Hsu, A., Sheriff, G., Chakraborty, T., & Manya, D. (2021). Disproportionate exposure to urban heat island intensity across major US cities. *Nature Communications*, 12, 2721. [https://doi.org/10.1038/s41467-021-22799-5](https://doi.org/10.1038/s41467-021-22799-5)
+
+Kuffer, M., Pfeffer, K., & Sliuzas, R. (2016). Slums from space—15 years of slum mapping using remote sensing. *Remote Sensing*, 8(6), 455. [https://doi.org/10.3390/rs8060455](https://doi.org/10.3390/rs8060455)
+
+Leonita, G., Kuffer, M., Sliuzas, R. V., & Persello, C. (2018). Machine learning-based slum mapping in support of slum upgrading programs: The case of Bandung City, Indonesia. *Remote Sensing*, 10(10), 1522. [https://doi.org/10.3390/rs10101522](https://doi.org/10.3390/rs10101522)
+
+Mahajan, S. (2024). greenR: An open-source framework for quantifying urban greenness. *Ecological Indicators*, 163, 112108. [https://doi.org/10.1016/j.ecolind.2024.112108](https://doi.org/10.1016/j.ecolind.2024.112108)
+
+Mardhotillah, H., & Gamal, A. (2018). Segregation and gentrification of an informal settlement in a city center. *International Journal of Technology*, 9(7). [https://doi.org/10.14716/ijtech.v9i7.2519](https://doi.org/10.14716/ijtech.v9i7.2519)
+
+Mazziotta, M., & Pareto, A. (2016). On a Generalized Non-compensatory Composite Index for Measuring Socio-economic Phenomena. *Social Indicators Research*, 127(3), 983–1003. [https://doi.org/10.1007/s11205-015-0998-2](https://doi.org/10.1007/s11205-015-0998-2)
+
+OECD/EC-JRC (2008). *Handbook on Constructing Composite Indicators: Methodology and User Guide*. OECD Publishing. [https://doi.org/10.1787/9789264043466-en](https://doi.org/10.1787/9789264043466-en)
 
 Openshaw, S. (1984). *The Modifiable Areal Unit Problem*. Geo Books.
 
-Reardon, S. F., & O'Sullivan, D. (2004). Measures of spatial segregation. *Sociological Methodology*, 34(1), 121–162. https://doi.org/10.1111/j.0081-1750.2004.00150.x
+Pesaresi, M., Schiavina, M., Politis, P., Freire, S., et al. (2024). Advances on the Global Human Settlement Layer by joint assessment of Earth Observation and population survey data. *International Journal of Digital Earth*, 17(1). [https://doi.org/10.1080/17538947.2024.2390454](https://doi.org/10.1080/17538947.2024.2390454)
 
-Rutstein, S. O., & Johnson, K. (2004). *The DHS wealth index* (DHS Comparative Reports No. 6). ORC Macro.
+Reardon, S. F., & O'Sullivan, D. (2004). Measures of spatial segregation. *Sociological Methodology*, 34(1), 121–162. [https://doi.org/10.1111/j.0081-1750.2004.00150.x](https://doi.org/10.1111/j.0081-1750.2004.00150.x)
+
+Rey, S. J., & Smith, R. J. (2013). A spatial decomposition of the Gini coefficient. *Letters in Spatial and Resource Sciences*, 6(2), 55–82. [https://doi.org/10.1007/s12076-012-0086-z](https://doi.org/10.1007/s12076-012-0086-z)
+
+Roberts, D. R., Bahn, V., Ciuti, S., Boyce, M. S., Elith, J., Guillera-Arroita, G., et al. (2017). Cross-validation strategies for data with temporal, spatial, hierarchical, or phylogenetic structure. *Ecography*, 40(8), 913–929. [https://doi.org/10.1111/ecog.02881](https://doi.org/10.1111/ecog.02881)
+
+Salehi, A., & Davulcu, H. (2020). Graph Attention Auto-Encoders (GATE). *IEEE International Conference on Tools with Artificial Intelligence (ICTAI)*. [https://doi.org/10.1109/ICTAI50040.2020.00154](https://doi.org/10.1109/ICTAI50040.2020.00154)
+
+Schiavina, M., Melchiorri, M., Pesaresi, M., et al. (2023). *GHSL Data Package 2023*. EC-JRC. [https://doi.org/10.2760/098587](https://doi.org/10.2760/098587)
+
+Taubenböck, H., Kraff, N. J., & Wurm, M. (2018). The morphology of the Arrival City – A global categorization based on literature surveys and remotely sensed data. *Applied Geography*, 92, 150–167. [https://doi.org/10.1016/j.apgeog.2018.02.002](https://doi.org/10.1016/j.apgeog.2018.02.002)
+
+Thomson, D. R., Kuffer, M., Boo, G., Hati, B., Grippa, T., Elsey, H., Linard, C., & Kabaria, C. (2020). Need for an Integrated Deprived Area "Slum" Mapping System (IDEAMAPS) in Low- and Middle-Income Countries (LMICs). *Social Sciences*, 9(5), 80. [https://doi.org/10.3390/socsci9050080](https://doi.org/10.3390/socsci9050080)
+
+van Donkelaar, A., Hammer, M. S., Bindle, L., Brauer, M., Brook, J. R., Garay, M. J., et al. (2021). Monthly global estimates of fine particulate matter and their uncertainty. *Environmental Science & Technology*, 55(22), 15287–15300. [https://doi.org/10.1021/acs.est.1c05309](https://doi.org/10.1021/acs.est.1c05309)
+
+Veličković, P., Cucurull, G., Casanova, A., Romero, A., Liò, P., & Bengio, Y. (2018). Graph Attention Networks. *ICLR 2018* / *arXiv:1710.10903*. [https://doi.org/10.48550/arXiv.1710.10903](https://doi.org/10.48550/arXiv.1710.10903)
+
+Voogt, J. A., & Oke, T. R. (2003). Thermal remote sensing of urban climates. *Remote Sensing of Environment*, 86(3), 370–384. [https://doi.org/10.1016/S0034-4257(03)00079-8](https://doi.org/10.1016/S0034-4257(03)00079-8)
+
+Wardhani, I. S. (2016). The implications of gated society in Jakarta Metropolitan Region: A multiple-case study in Tangerang District, Banten, Indonesia. *Journal of Government and Politics*, 7(1), 128–152. [https://doi.org/10.18196/jgp.2016.0025](https://doi.org/10.18196/jgp.2016.0025)
