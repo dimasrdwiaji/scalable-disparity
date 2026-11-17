@@ -5,51 +5,44 @@ Reallocating 'name_of_file' (item size: 1) to 8 items.
 The style file: apalike.bst
 Reallocating 'name_of_file' (item size: 1) to 11 items.
 Database file #1: references.bib
-Warning--I didn't find a database entry for "Schiavina2023"
-Warning--I didn't find a database entry for "Rukmana2018"
-Warning--I didn't find a database entry for "Leisch2002"
-Warning--I didn't find a database entry for "Winarso2015"
-Warning--I didn't find a database entry for "Sahr2003"
-Warning--can't use both volume and number fields in Chen2020
-You've used 43 entries,
+You've used 62 entries,
             1935 wiz_defined-function locations,
-            767 strings with 11739 characters,
-and the built_in function-call counts, 18378 in all, are:
-= -- 1759
-> -- 880
-< -- 21
-+ -- 320
-- -- 304
-* -- 1629
-:= -- 3214
-add.period$ -- 127
-call.type$ -- 43
-change.case$ -- 359
-chr.to.int$ -- 43
-cite$ -- 44
-duplicate$ -- 645
-empty$ -- 1215
-format.name$ -- 359
-if$ -- 3540
-int.to.chr$ -- 1
+            871 strings with 16455 characters,
+and the built_in function-call counts, 26122 in all, are:
+= -- 2485
+> -- 1295
+< -- 26
++ -- 471
+- -- 448
+* -- 2366
+:= -- 4628
+add.period$ -- 183
+call.type$ -- 62
+change.case$ -- 526
+chr.to.int$ -- 59
+cite$ -- 62
+duplicate$ -- 881
+empty$ -- 1708
+format.name$ -- 536
+if$ -- 4974
+int.to.chr$ -- 4
 int.to.str$ -- 0
-missing$ -- 43
-newline$ -- 216
-num.names$ -- 129
-pop$ -- 315
+missing$ -- 60
+newline$ -- 310
+num.names$ -- 186
+pop$ -- 435
 preamble$ -- 1
-purify$ -- 362
+purify$ -- 527
 quote$ -- 0
-skip$ -- 491
+skip$ -- 657
 stack$ -- 0
-substring$ -- 1288
-swap$ -- 84
-text.length$ -- 6
+substring$ -- 1800
+swap$ -- 77
+text.length$ -- 2
 text.prefix$ -- 0
 top$ -- 0
-type$ -- 250
-warning$ -- 1
-while$ -- 140
+type$ -- 366
+warning$ -- 0
+while$ -- 197
 width$ -- 0
-write$ -- 549
-(There were 6 warnings)
+write$ -- 790
