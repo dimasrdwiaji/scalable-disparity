@@ -76,3 +76,16 @@ htmlcov/
 # Dataset
 data/
 .h3/
+
+# LaTeX build intermediates (keep .tex, .bib, figures, and compiled .pdf tracked)
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+*.lof
+*.lot
