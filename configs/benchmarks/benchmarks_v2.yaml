@@ -52,3 +52,29 @@ channels:
     orientation: inverted
     friction_group: micro_env
     bound_source: provisional
+
+candidate_channels:
+  - name: s2_res_glcm_contrast
+    source: s2_res_glcm_contrast
+    transform: none
+    lower: 0.0
+    upper: 50.0 # GLCM gray contrast on residentially masked 10 m Sentinel-2
+    orientation: inverted
+    friction_group: built_form
+    bound_source: provisional
+  - name: s2_res_glcm_homogeneity
+    source: s2_res_glcm_homogeneity
+    transform: none
+    lower: 0.0
+    upper: 1.0 # GLCM inverse difference moment (homogeneity)
+    orientation: positive
+    friction_group: built_form
+    bound_source: provisional
+  - name: ghs_res_share
+    source: ghs_res_share
+    transform: none
+    lower: 0.0
+    upper: 1.0 # Conditional GHSL residential built-up share
+    orientation: positive
+    friction_group: built_form
+    bound_source: standard

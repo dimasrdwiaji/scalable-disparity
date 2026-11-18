@@ -287,3 +287,79 @@ def test_urban_built_up_mask_requires_smod_urban_and_residential_building():
 
     mask = urban_built_up_mask(smod, res_buildings)
     assert mask.tolist() == [True, False, False, True]
+
+
+def test_candidate_promotion_3_gate_decision_logic():
+    from phys_living_index.features.build_features import screen_candidate_features
+
+    rng = np.random.default_rng(7)
+    n = 160
+    idx = [f"h{i:03d}" for i in range(n)]
+    # 2x2 geographic quadrants (40 cells per quadrant; half slum, half formal inside each)
+    lat = np.where(np.arange(n) < n // 2, -6.15, -6.28) + rng.uniform(-0.01, 0.01, n)
+    lon = np.where((np.arange(n) % (n // 2)) < n // 4, 106.78, 106.92) + rng.uniform(-0.01, 0.01, n)
+    is_slum = ((np.arange(n) % 2) == 0).astype(int)
+    # Coverage varies smoothly across cells (uncorrelated with slum label)
+    coverage = rng.uniform(0.1, 0.9, n)
+
+    cand_valid = np.where(is_slum == 1, 20.0, 10.0) + rng.normal(0, 1.5, n)
+    cand_nonsig = rng.normal(0.0, 1.0, n)
+    cand_collinear = 10.0 * coverage + 0.5 * is_slum + rng.normal(0, 0.1, n)
+    # Fold flip: north (+3 on slums), south (-3 on slums)
+    is_north = lat > -6.20
+    cand_fold_flip = np.where(is_north, np.where(is_slum == 1, 5.0, 1.0), np.where(is_slum == 1, 1.0, 5.0)) + rng.normal(0, 0.3, n)
+
+    df = pd.DataFrame({
+        "is_residential": True,
+        "lat": lat,
+        "lon": lon,
+        "coverage": coverage,
+        "cand_valid": cand_valid,
+        "cand_nonsig": cand_nonsig,
+        "cand_collinear": cand_collinear,
+        "cand_fold_flip": cand_fold_flip,
+    }, index=pd.Index(idx, name="h3_index"))
+    labels = pd.Series(is_slum, index=df.index, name="is_slum")
+
+    res = screen_candidate_features(
+        df,
+        labels=labels,
+        candidates=["cand_valid", "cand_nonsig", "cand_collinear", "cand_fold_flip"],
+        coverage_col="coverage",
+        n_lat_blocks=2,
+        n_lon_blocks=2,
+    )
+    assert bool(res.loc["cand_valid", "promoted"]) is True
+    assert bool(res.loc["cand_nonsig", "gate1_separation"]) is False
+    assert bool(res.loc["cand_nonsig", "promoted"]) is False
+    assert bool(res.loc["cand_collinear", "gate2_low_confounding"]) is False
+    assert bool(res.loc["cand_collinear", "promoted"]) is False
+    assert bool(res.loc["cand_fold_flip", "gate3_fold_consistency"]) is False
+    assert bool(res.loc["cand_fold_flip", "promoted"]) is False
+
+    # Unlabeled cells outside DKI (labels=NaN) must be excluded from spatial blocking and Gate 2 rho
+    extra = pd.DataFrame({
+        "is_residential": True,
+        "lat": np.full(80, -6.95),
+        "lon": np.full(80, 107.40),
+        "coverage": np.linspace(0.0, 1.0, 80),
+        "cand_valid": np.linspace(0.0, 100.0, 80),
+        "cand_nonsig": np.zeros(80),
+        "cand_collinear": np.zeros(80),
+        "cand_fold_flip": np.zeros(80),
+    }, index=pd.Index([f"out{i:03d}" for i in range(80)], name="h3_index"))
+    combined = pd.concat([df, extra])
+    res_scoped = screen_candidate_features(
+        combined,
+        labels=labels,  # outer cells stay NaN on reindex
+        candidates=["cand_valid"],
+        coverage_col="coverage",
+        n_lat_blocks=2,
+        n_lon_blocks=2,
+    )
+    assert bool(res_scoped.loc["cand_valid", "promoted"]) is True
+    assert res_scoped.loc["cand_valid", "n_valid"] == n
+
+    v2 = load_benchmarks(benchmark_path("v2", CONFIG_DIR))
+    with pytest.raises(ValueError, match="D in \\{4, 5, 6\\}"):
+        v2.with_active_channels(["res_share_lt50", "res_nn_p25"])

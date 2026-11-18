@@ -824,11 +824,23 @@ def quality_report(
         for prefix in ("s2", "lst")
         if f"{prefix}_tier" in raw.columns
     }
+    clip_records = clipped_shares(raw, benchmarks, res).reset_index().to_dict(orient="records")
+    outside_reference = [str(r["channel"]) for r in clip_records if r.get("outside_reference")]
+    if outside_reference:
+        logger.warning(
+            "Channels exceeding clip_flag_share (%.3f): %s",
+            benchmarks.clip_flag_share,
+            outside_reference,
+        )
     report: dict[str, Any] = {
         "region": run.config["project"]["study_area"],
         "reference_year": run.year,
         "benchmarks_version": benchmarks.version,
         "benchmarks_provisional": benchmarks.provisional,
+        "active_dimensions": len(benchmarks.channels),
+        "active_channels": benchmarks.names,
+        "clip_flag_share": float(benchmarks.clip_flag_share),
+        "outside_reference_channels": outside_reference,
         "urban_mask_rule": {
             "urban_smod_codes": list(benchmarks.urban_smod_codes),
             "min_residential_building_count": int(benchmarks.min_building_count),
@@ -838,7 +850,7 @@ def quality_report(
         "modelled_cells": int(is_modelled.sum()),
         "window_tier_shares_residential": tier_shares,
         "tier3_share_flag": {k: float(v.get(3, 0.0)) > 0.10 for k, v in tier_shares.items()},
-        "clip_shares": clipped_shares(raw, benchmarks, res).reset_index().to_dict(orient="records"),
+        "clip_shares": clip_records,
         "buildings": {
             "total_buildings": int(raw["building_count"].sum()) if "building_count" in raw.columns else 0,
             "residential_buildings": (
@@ -892,6 +904,7 @@ def run_stage3(
     root: str | Path,
     layer_dir: str | Path | None = None,
     config_dir: str | Path | None = None,
+    active_channels: Sequence[str] | None = None,
 ) -> dict[str, Path]:
     """
     Builds the Stage 3 outputs for one region config.
@@ -906,6 +919,9 @@ def run_stage3(
         Layer cache directory (default root/data/interim/layers).
     config_dir : str | Path | None
         Directory holding `benchmarks/` (default: the region config's directory).
+    active_channels : Sequence[str] | None
+        Optional ordered subset of benchmark/candidate channel names (`D = 4..6`); defaults
+        to `config["features"]["active_channels"]` when present or the benchmark core channels.
 
     Returns
     -------
@@ -917,6 +933,8 @@ def run_stage3(
     benchmarks = load_benchmarks(
         benchmark_path(config["benchmarks_version"], Path(config_dir) if config_dir else Path(config_path).parent)
     )
+    selected_channels = active_channels if active_channels is not None else config.get("features", {}).get("active_channels")
+    benchmarks = benchmarks.with_active_channels(selected_channels)
     if benchmarks.provisional:
         logger.warning("Benchmarks %s are PROVISIONAL; outputs are provisional (ticket 14).", benchmarks.version)
 
@@ -961,8 +979,11 @@ def run_stage3(
     npy_path = processed / f"feature_matrix_{n_dim}d.npy"
     np.save(npy_path, X)
 
+    geo_table = pd.concat([raw, scaled.add_suffix("_scaled")], axis=1)
+    geo_table["has_complete_features"] = has_complete
+    geo_table["is_modelled"] = is_modelled
     geo = gpd.GeoDataFrame(
-        pd.concat([raw, scaled.add_suffix("_scaled")], axis=1),
+        geo_table,
         geometry=h3_polygons(cells),
         crs="EPSG:4326",
     )

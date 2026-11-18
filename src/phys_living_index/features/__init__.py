@@ -8,6 +8,7 @@ from .build_features import (
     assemble_h3_features,
     build_feature_matrix,
     load_benchmarks,
+    screen_candidate_features,
 )
 from .isochrones import (
     compute_amenity_accessibility,
@@ -25,5 +26,6 @@ __all__ = [
     "compute_amenity_accessibility_city2graph",
     "create_isochrone_city2graph",
     "load_benchmarks",
+    "screen_candidate_features",
     "urban_built_up_mask",
 ]

@@ -16,7 +16,8 @@ Implements ADR 0003:
 Raw inputs keep authentic physical units (CLAUDE.md); scaling happens only here.
 """
 
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +98,8 @@ class BenchmarkSet:
     channels: tuple[ChannelBenchmark, ...]
     min_building_count: int
     clip_flag_share: float
+    candidate_channels: tuple[ChannelBenchmark, ...] = ()
+    promoted_channels: tuple[str, ...] = ()
     urban_smod_codes: tuple[int, ...] = DEFAULT_URBAN_SMOD_CODES
     min_density_per_km2: float | None = None
     sensitivity_densities_per_km2: tuple[float, ...] = ()
@@ -110,6 +113,21 @@ class BenchmarkSet:
         """Column indices of channels in a Stage 4 domain group ('built_form', 'micro_env', 'socio', or 'bio')."""
         return [i for i, c in enumerate(self.channels) if c.friction_group == group]
 
+    def with_active_channels(self, channel_names: Sequence[str] | None) -> "BenchmarkSet":
+        """Returns a BenchmarkSet narrowed/ordered to `channel_names` (enforcing D in {4, 5, 6} for v2)."""
+        target_names = list(channel_names) if channel_names is not None else list(self.promoted_channels)
+        if not target_names:
+            return self
+        if len(set(target_names)) != len(target_names):
+            raise ValueError(f"Duplicate channels in active_channels: {target_names}")
+        if self.version == "v2" and not (4 <= len(target_names) <= 6):
+            raise ValueError(f"ADR 0005 requires active_channels count D in {{4, 5, 6}}; got {len(target_names)}")
+        pool = {c.name: c for c in (*self.channels, *self.candidate_channels)}
+        unknown = [name for name in target_names if name not in pool]
+        if unknown:
+            raise KeyError(f"Unknown benchmark channels {unknown}; available: {sorted(pool)}")
+        return replace(self, channels=tuple(pool[name] for name in target_names))
+
 
 def benchmark_path(version: str, config_dir: str | Path) -> Path:
     """Path of the benchmark file for a version, e.g. configs/benchmarks/benchmarks_v2.yaml."""
@@ -119,8 +137,10 @@ def benchmark_path(version: str, config_dir: str | Path) -> Path:
 def parse_benchmarks(raw: dict[str, Any]) -> BenchmarkSet:
     """Validates a parsed benchmark YAML document into a BenchmarkSet."""
     channels = tuple(ChannelBenchmark(**c) for c in raw["channels"])
-    names = [c.name for c in channels]
-    if len(set(names)) != len(names):
+    candidates = tuple(ChannelBenchmark(**c) for c in raw.get("candidate_channels", ()))
+    promoted = tuple(str(name) for name in raw.get("promoted_channels", ()))
+    all_names = [c.name for c in (*channels, *candidates)]
+    if len(set(all_names)) != len(all_names):
         raise ValueError("Duplicate channel names in benchmark file")
     residential = raw.get("residential", {})
     smod_codes = tuple(int(code) for code in residential.get("urban_smod_codes", DEFAULT_URBAN_SMOD_CODES))
@@ -134,6 +154,8 @@ def parse_benchmarks(raw: dict[str, Any]) -> BenchmarkSet:
         channels=channels,
         min_building_count=int(residential.get("min_building_count", 1)),
         clip_flag_share=float(raw["clip_flag_share"]),
+        candidate_channels=candidates,
+        promoted_channels=promoted,
         urban_smod_codes=smod_codes,
         min_density_per_km2=float(min_density) if min_density is not None else None,
         sensitivity_densities_per_km2=tuple(float(d) for d in sens_densities),
@@ -440,3 +462,129 @@ def assemble_h3_features(
             else:
                 df[col] = vals
     return df
+
+
+def _spatial_block_ids(lat: pd.Series, lon: pd.Series, n_lat_blocks: int, n_lon_blocks: int) -> pd.Series:
+    """Assigns deterministic geographic grid block IDs using rank-based quantile cuts."""
+    lat_bins = pd.qcut(lat.rank(method="first"), q=n_lat_blocks, labels=False)
+    lon_bins = pd.qcut(lon.rank(method="first"), q=n_lon_blocks, labels=False)
+    return lat_bins.astype(int) * n_lon_blocks + lon_bins.astype(int)
+
+
+def _effect_sign(auc: float, med_diff: float = 0.0) -> int:
+    """Signed separation direction (+1 higher on positives, -1 lower, 0 tie)."""
+    auc_diff = auc - 0.5
+    if auc_diff != 0.0:
+        return 1 if auc_diff > 0 else -1
+    if med_diff != 0.0:
+        return 1 if med_diff > 0 else -1
+    return 0
+
+
+def _candidate_row(
+    candidate: str,
+    n_valid: int,
+    n_pos: int,
+    n_neg: int,
+    auc: float = float("nan"),
+    effect_direction: int = 0,
+    p_value: float = 1.0,
+    gate1: bool = False,
+    rho_coverage: float = float("nan"),
+    gate2: bool = False,
+    n_folds_evaluated: int = 0,
+    n_folds_same_sign: int = 0,
+    gate3: bool = False,
+) -> dict[str, Any]:
+    return {
+        "candidate": candidate,
+        "n_valid": int(n_valid),
+        "n_pos": int(n_pos),
+        "n_neg": int(n_neg),
+        "auc": float(auc),
+        "auc_magnitude": float(max(auc, 1.0 - auc)) if np.isfinite(auc) else float("nan"),
+        "effect_direction": int(effect_direction),
+        "p_value": float(p_value),
+        "gate1_separation": bool(gate1),
+        "rho_coverage": float(rho_coverage),
+        "gate2_low_confounding": bool(gate2),
+        "n_folds_evaluated": int(n_folds_evaluated),
+        "n_folds_same_sign": int(n_folds_same_sign),
+        "gate3_fold_consistency": bool(gate3),
+        "promoted": bool(gate1 and gate2 and gate3),
+    }
+
+
+def screen_candidate_features(
+    raw_df: pd.DataFrame,
+    labels: pd.Series,
+    candidates: Sequence[str],
+    coverage_col: str = "residential_building_count",
+    mask_col: str = "is_residential",
+    max_p_value: float = 0.01,
+    max_abs_rho: float = 0.35,
+    n_lat_blocks: int = 2,
+    n_lon_blocks: int = 2,
+    min_valid_folds: int = 3,
+    min_fold_pos: int = 5,
+    min_fold_neg: int = 5,
+) -> pd.DataFrame:
+    """
+    Runs the 3-gate candidate promotion screen (ADR 0005) on labeled urban-masked cells:
+      1. Binary separation vs labels (two-sided Mann-Whitney U p < `max_p_value`).
+      2. Low confounding correlation vs coverage/density (`|Spearman rho| < max_abs_rho`).
+      3. Consistent effect direction across spatially blocked geographic folds.
+    """
+    from scipy.stats import mannwhitneyu, spearmanr
+    from sklearn.metrics import roc_auc_score
+
+    aligned_labels = labels.reindex(raw_df.index)
+    mask = raw_df[mask_col].fillna(False).astype(bool) & aligned_labels.notna()
+    sub = raw_df.loc[mask].copy()
+    sub["_label"] = aligned_labels.loc[mask]
+    sub["_block"] = _spatial_block_ids(sub["lat"], sub["lon"], n_lat_blocks, n_lon_blocks) if len(sub) else pd.Series(dtype=int)
+
+    rows: list[dict[str, Any]] = []
+    for col in candidates:
+        valid = sub[[col, "_label", "_block"]].dropna()
+        y = valid["_label"].astype(int).to_numpy()
+        x = valid[col].astype(float).to_numpy()
+        pos_vals = x[y == 1]
+        neg_vals = x[y == 0]
+
+        if len(pos_vals) == 0 or len(neg_vals) == 0:
+            rows.append(_candidate_row(col, len(valid), len(pos_vals), len(neg_vals)))
+            continue
+
+        _, p_val = mannwhitneyu(pos_vals, neg_vals, alternative="two-sided")
+        auc = float(roc_auc_score(y, x))
+        global_sign = _effect_sign(auc, float(np.median(pos_vals) - np.median(neg_vals)))
+        gate1 = bool(p_val < max_p_value) and global_sign != 0
+
+        cov_pair = sub[[col, coverage_col]].dropna()
+        rho_val = (
+            float(spearmanr(cov_pair[col].astype(float), cov_pair[coverage_col].astype(float)).statistic)
+            if len(cov_pair) > 2
+            else float("nan")
+        )
+        gate2 = bool(np.isfinite(rho_val) and abs(rho_val) < max_abs_rho)
+
+        n_folds_eval = 0
+        n_folds_same = 0
+        for _, grp in valid.groupby("_block"):
+            gy = grp["_label"].astype(int).to_numpy()
+            if int((gy == 1).sum()) < min_fold_pos or int((gy == 0).sum()) < min_fold_neg:
+                continue
+            n_folds_eval += 1
+            if _effect_sign(float(roc_auc_score(gy, grp[col].astype(float).to_numpy()))) == global_sign and global_sign != 0:
+                n_folds_same += 1
+
+        gate3 = bool(n_folds_eval >= min_valid_folds and n_folds_same == n_folds_eval)
+        rows.append(_candidate_row(
+            col, len(valid), len(pos_vals), len(neg_vals),
+            auc=auc, effect_direction=global_sign, p_value=float(p_val), gate1=gate1,
+            rho_coverage=rho_val, gate2=gate2,
+            n_folds_evaluated=n_folds_eval, n_folds_same_sign=n_folds_same, gate3=gate3,
+        ))
+
+    return pd.DataFrame(rows).set_index("candidate")

@@ -278,3 +278,48 @@ def test_run_stage3_carries_optical_glcm_candidates_and_ghs_res_share(region):
     assert raw.loc[cells[0], "s2_res_glcm_contrast"] > 0.0
     assert np.isnan(raw.loc[cells[1], "s2_res_glcm_contrast"])  # NaN-safe on sparse/absent urban texture
     assert np.isnan(raw.loc[cells[-1], "s2_res_glcm_contrast"])  # rural cell masked to NaN
+
+
+@pytest.mark.parametrize(
+    "active_channels,expected_dim",
+    [
+        (None, 4),
+        (["res_share_lt50", "res_nn_p25", "vegetation_ndvi", "dlst_local_ring_k5", "s2_res_glcm_contrast"], 5),
+        (["res_share_lt50", "res_nn_p25", "vegetation_ndvi", "dlst_local_ring_k5", "s2_res_glcm_contrast", "ghs_res_share"], 6),
+    ],
+)
+def test_run_stage3_dynamic_d4_d5_d6_scaling_and_clip_flag_qa(region, active_channels, expected_dim):
+    import geopandas as gpd
+
+    config_path, root, cells = region
+    # Force clipping overflow on > 10% of urban cells for res_nn_p25 (> 25 m) to verify clip_flag_share QA audit
+    bld_path = root / "data" / "interim" / "layers" / "buildings.parquet"
+    bld = pd.read_parquet(bld_path)
+    bld.iloc[: len(cells) // 4, bld.columns.get_loc("res_nn_p25")] = 40.0
+    write_table_with_provenance(bld, bld_path, {"synthetic": True})
+
+    # Make cell 0 fail candidate feature so is_modelled isolates it from training while X stays finite
+    s2_path = root / "data" / "interim" / "layers" / "sentinel2.parquet"
+    s2 = pd.read_parquet(s2_path)
+    s2.loc[cells[0], "s2_res_glcm_contrast"] = np.nan
+    write_table_with_provenance(s2, s2_path, {"synthetic": True})
+
+    outputs = stage3.run_stage3(
+        config_path, root, config_dir=REPO / "configs", active_channels=active_channels
+    )
+    matrix = pd.read_parquet(outputs["matrix"])
+    geo = gpd.read_parquet(outputs["geo"])
+    X = np.load(outputs["npy"])
+    qa = json.loads(Path(outputs["qa"]).read_text(encoding="utf-8"))
+
+    assert outputs["matrix"].name == f"feature_matrix_{expected_dim}d.parquet"
+    assert outputs["npy"].name == f"feature_matrix_{expected_dim}d.npy"
+    assert X.shape == (len(cells), expected_dim) and np.isfinite(X).all()
+    assert ((X >= 0.0) & (X <= 1.0)).all()
+    assert qa["active_dimensions"] == expected_dim
+    assert "res_nn_p25" in qa["outside_reference_channels"]
+    assert "is_modelled" in geo.columns and "has_complete_features" in geo.columns
+    if expected_dim >= 5:
+        assert not bool(matrix.loc[cells[0], "is_modelled"])
+        assert not bool(geo.loc[cells[0], "is_modelled"])
+        assert bool(matrix.loc[cells[0], "is_residential"])
