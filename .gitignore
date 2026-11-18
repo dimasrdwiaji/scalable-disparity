@@ -74,7 +74,7 @@ htmlcov/
 *.db
 
 # Dataset
-data/
+/data/
 .h3/
 
 # LaTeX build intermediates (keep .tex, .bib, figures, and compiled .pdf tracked)

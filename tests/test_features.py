@@ -260,3 +260,30 @@ def test_bivariate_local_moran_baseline():
     assert "p_sim" in lisa
     assert "is_outlier" in lisa
     assert len(lisa["Is"]) == n
+
+
+def test_benchmark_v2_schema_uses_built_form_and_micro_env_without_population():
+    from phys_living_index.features.build_features import (
+        DEFAULT_URBAN_SMOD_CODES,
+        FEATURE_DIMENSIONS_V2_CORE,
+    )
+
+    v2 = load_benchmarks(benchmark_path("v2", CONFIG_DIR))
+    assert v2.version == "v2"
+    assert v2.names == FEATURE_DIMENSIONS_V2_CORE
+    assert v2.urban_smod_codes == DEFAULT_URBAN_SMOD_CODES
+    assert v2.min_density_per_km2 is None
+    assert v2.un_habitat_min_m2 is None
+    assert v2.group_indices("built_form") == [0, 1]
+    assert v2.group_indices("micro_env") == [2, 3]
+
+
+def test_urban_built_up_mask_requires_smod_urban_and_residential_building():
+    from phys_living_index.features.residential import urban_built_up_mask
+
+    cells = ["c_urban_ok", "c_urban_no_res", "c_rural_ok", "c_suburban_ok"]
+    smod = pd.Series([30, 23, 12, 21], index=cells)
+    res_buildings = pd.Series([5, 0, 10, 1], index=cells)
+
+    mask = urban_built_up_mask(smod, res_buildings)
+    assert mask.tolist() == [True, False, False, True]

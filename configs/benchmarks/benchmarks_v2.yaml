@@ -1,0 +1,54 @@
+# Universal scale settings (ADR 0005) — version v2.
+#
+# Identical for every region. Channel order defines the active core D=4 matrix;
+# candidate promoted channels (s2_res_glcm_*, ghs_res_share) are appended when selected.
+# Friction groups: 'built_form' and 'micro_env'.
+#
+# transform:   none | log1p           (applied before scaling)
+# orientation: positive  -> higher raw value = higher living standard
+#              inverted  -> higher raw value = worse (scaled as 1 - x)
+#              context   -> mapped linearly to [0, 1] without normative inversion
+
+version: "v2"
+provisional: true
+
+residential:
+  urban_smod_codes: [21, 22, 23, 30] # Pure physical GHS-SMOD urban settlement classes
+  min_building_count: 1 # Minimum masked residential footprints in cell
+
+# Share of urban-masked cells clipped at either bound above which a region is flagged
+clip_flag_share: 0.05
+
+channels:
+  - name: res_share_lt50
+    source: res_share_lt50
+    transform: none
+    lower: 0.0
+    upper: 1.0 # Share of masked residential footprints < 50 m²
+    orientation: inverted
+    friction_group: built_form
+    bound_source: standard
+  - name: res_nn_p25
+    source: res_nn_p25
+    transform: none
+    lower: 0.0
+    upper: 25.0 # 25th-percentile nearest-neighbor centroid distance (m)
+    orientation: positive
+    friction_group: built_form
+    bound_source: provisional
+  - name: vegetation_ndvi
+    source: ndvi
+    transform: none
+    lower: -0.1
+    upper: 0.8
+    orientation: context
+    friction_group: micro_env
+    bound_source: provisional
+  - name: dlst_local_ring_k5
+    source: dlst_local_ring_k5
+    transform: none
+    lower: -5.0
+    upper: 10.0 # Intra-urban thermal anomaly relative to k=5 (~2.6 km) urban ring (K)
+    orientation: inverted
+    friction_group: micro_env
+    bound_source: provisional

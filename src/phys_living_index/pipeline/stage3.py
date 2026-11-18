@@ -1,16 +1,16 @@
 """
 Stage 3 pipeline: raw inputs → per-cell raw features → universally scaled feature matrix.
 
-One entry point (`run_stage3`) builds every channel for any region config (ADR 0002, 0003):
+One entry point (`run_stage3`) builds every active ADR 0005 channel for any region config:
 each layer is reduced onto the region's H3 Res-8 cells and cached as a parquet table with a
 provenance record under `data/interim/layers/`, so reruns only rebuild missing layers.
 
-Layers
-------
-Earth Engine: Sentinel-2 indices (tiered), Landsat LST (tiered), Dynamic World water frequency
-and vegetation probability, JRC permanent water, GHS-POP / GHS-BUILT-S / GHS-SMOD, VIIRS
-annual radiance, Sentinel-5P NO2, MODIS LST (sanity), Open Buildings Temporal floors.
-Local: building footprints (DuckDB), ACAG PM2.5 (exactextract), OSM walk accessibility.
+Active Layers (ADR 0005)
+------------------------
+Earth Engine: 10 m Sentinel-2 NDVI + residential-masked GLCM texture (tiered),
+multi-year 100 m Landsat 8/9 Tier-1 LST (tiered, zero MODIS fallback),
+GHS-SMOD settlement class, and GHS-BUILT-S residential built share.
+Local: OSM-masked building footprints & spacing (DuckDB + metric cKDTree).
 """
 
 import json
@@ -34,22 +34,14 @@ from ..features.build_features import (
     benchmark_path,
     build_feature_matrix,
     clipped_shares,
-    combine_floor_area,
     complete_feature_mask,
-    compute_heat_island_intensity,
-    compute_living_space_ratio,
-    compute_terrain_safety,
+    compute_city_urban_dlst,
+    compute_ghs_res_share,
+    compute_local_urban_ring_dlst,
     fill_for_message_passing,
-    heat_island_background_mask,
     load_benchmarks,
 )
-from ..features.residential import (
-    built_surface_change_share,
-    compute_residential_plan_area_fraction,
-    mask_sensitivity,
-    population_density,
-    residential_mask,
-)
+from ..features.residential import compute_h3_nearest_neighbor_p25, urban_built_up_mask
 
 logger = logging.getLogger(__name__)
 
@@ -144,14 +136,26 @@ def _tiers(raw: list[list[list[str]]]) -> list[list[tuple[str, str]]]:
     return [[(r[0], r[1]) for r in tier] for tier in raw]
 
 
+def _ghsl_epochs(config: dict[str, Any]) -> tuple[int, int]:
+    ghsl_cfg = config.get("ghsl") or config.get("population", {})
+    low, high = ghsl_cfg.get("ghs_epochs", [2020, 2025])
+    return int(low), int(high)
+
+
 def build_sentinel2(run: RegionRun) -> LayerResult:
-    from ..data.gee_layers import S2_COLLECTION, reduce_tiered_composite, sentinel2_index_collection
+    from ..data.gee_layers import (
+        S2_COLLECTION,
+        reduce_tiered_composite,
+        sentinel2_index_collection,
+        sentinel2_residential_glcm_image,
+    )
 
     cfg = run.config["compositing"]["sentinel2"]
-    table, tiers = reduce_tiered_composite(
+    tiers = _tiers(cfg["tiers"])
+    table, tier_prov = reduce_tiered_composite(
         lambda ranges: sentinel2_index_collection(run.bbox, ranges, cfg["cs_cdf_threshold"]),
-        ["ndvi", "ndbi", "bsi"],
-        _tiers(cfg["tiers"]),
+        ["ndvi"],
+        tiers,
         run.cells,
         scale_m=cfg["scale_m"],
         min_clear=cfg["min_clear"],
@@ -159,9 +163,63 @@ def build_sentinel2(run: RegionRun) -> LayerResult:
         crs=run.crs,
         batch_size=run.batch_size,
     )
+    low, high = _ghsl_epochs(run.config)
+    glcm_size = int(cfg.get("glcm_window_size", 3))
+    glcm_ndvi_max = float(cfg.get("glcm_ndvi_max", 0.35))
+    all_dry_ranges = [date_range for tier in tiers for date_range in tier]
+    glcm_img = sentinel2_residential_glcm_image(
+        run.bbox,
+        all_dry_ranges,
+        year=run.year,
+        epoch_low=low,
+        epoch_high=high,
+        cs_cdf_threshold=cfg["cs_cdf_threshold"],
+        glcm_size=glcm_size,
+        ndvi_max=glcm_ndvi_max,
+    )
+    glcm_red = reduce_image_over_cells(
+        glcm_img,
+        run.cells,
+        ["s2_res_glcm_contrast", "s2_res_glcm_homogeneity"],
+        scale=cfg["scale_m"],
+        extra_stats=(),
+        crs=run.crs,
+        batch_size=run.batch_size,
+    )
     table = table.rename(columns={c: f"s2_{c}" for c in ["n_clear", "valid_frac", "median_doy", "tier"]})
-    return table, {"asset": S2_COLLECTION, "cloud_mask": f"cs_cdf>={cfg['cs_cdf_threshold']}",
-                   "scale_m": cfg["scale_m"], "crs": run.crs, "tiers": tiers}
+    table["s2_res_glcm_contrast"] = glcm_red["s2_res_glcm_contrast_mean"]
+    table["s2_res_glcm_homogeneity"] = glcm_red["s2_res_glcm_homogeneity_mean"]
+    return table, {
+        "asset": S2_COLLECTION,
+        "cloud_mask": f"cs_cdf>={cfg['cs_cdf_threshold']}",
+        "scale_m": cfg["scale_m"],
+        "glcm_window_size": glcm_size,
+        "glcm_ndvi_max": glcm_ndvi_max,
+        "crs": run.crs,
+        "tiers": tier_prov,
+    }
+
+
+def build_ghs_residential(run: RegionRun) -> LayerResult:
+    from ..data.gee_layers import GHS_BUILT_S, ghs_native_projection, ghs_residential_built_bands
+
+    low, high = _ghsl_epochs(run.config)
+    image = ghs_residential_built_bands(run.year, low, high)
+    reduced = reduce_image_over_cells(
+        image,
+        run.cells,
+        ["ghs_built_total", "ghs_built_nres"],
+        scale=100,
+        reducer="sum",
+        extra_stats=(),
+        crs=ghs_native_projection(),
+        batch_size=run.batch_size,
+    )
+    table = pd.DataFrame({
+        "ghs_built_total_m2": reduced["ghs_built_total_sum"].fillna(0.0),
+        "ghs_built_nres_m2": reduced["ghs_built_nres_sum"].fillna(0.0),
+    })
+    return table, {"asset": GHS_BUILT_S, "year": run.year, "epochs": [low, high], "scale_m": 100}
 
 
 def build_landsat(run: RegionRun) -> LayerResult:
@@ -295,7 +353,8 @@ def build_population(run: RegionRun) -> LayerResult:
 def build_settlement_class(run: RegionRun) -> LayerResult:
     from ..data.gee_layers import GHS_SMOD, ghs_native_projection, ghs_settlement_class
 
-    epoch = run.config["population"]["smod_epoch"]
+    ghsl_cfg = run.config.get("ghsl") or run.config.get("population", {})
+    epoch = int(ghsl_cfg.get("smod_epoch", 2025))
     reduced = reduce_image_over_cells(
         ghs_settlement_class(epoch), run.cells, ["smod_code"], scale=1000, reducer="mode",
         extra_stats=(), crs=ghs_native_projection(), batch_size=run.batch_size,
@@ -483,12 +542,13 @@ def ensure_osm_nonres_zones(run: RegionRun) -> Path:
 
 
 def build_buildings(run: RegionRun) -> LayerResult:
-    """Per-cell building count, wall/roof footprint area, and hierarchical residential floor area."""
+    """Per-cell masked residential building counts, small-footprint shares (<50/<60 m2), and P25 spacing."""
     import duckdb
 
     path = run.path("data/raw/buildings.parquet").as_posix()
     res = int(run.config["spatial"]["h3_resolution"])
     b_cfg = run.config.get("buildings", {})
+    min_conf = float(b_cfg.get("min_confidence", 0.65))
     eave_m = float(b_cfg.get("eave_offset_m", 0.5))
     use_cfg = b_cfg.get("use_filter", {})
     comm_min = float(use_cfg.get("min_commercial_retail_size_m2", 200.0))
@@ -507,55 +567,109 @@ def build_buildings(run: RegionRun) -> LayerResult:
     con.load_extension("h3")
     con.execute("SET geometry_always_xy = true;")
 
-    query = f"""
-        WITH b_joined AS (
+    cols = set(con.execute(f"DESCRIBE SELECT * FROM read_parquet('{path}')").df()["column_name"])
+    conf_where = f"WHERE b.confidence IS NULL OR b.confidence >= {min_conf}" if "confidence" in cols else ""
+    height_expr = "b.height" if "height" in cols else "NULL::DOUBLE"
+    floor_expr = "COALESCE(b.floor_count, 1)" if "floor_count" in cols else "1"
+
+    con.execute(f"""
+        CREATE TEMP TABLE b_joined AS
+        WITH src AS (
             SELECT
-                printf('%x', h3_latlng_to_cell(ST_Y(ST_Centroid(b.geometry)), ST_X(ST_Centroid(b.geometry)), {res})) AS h3_index,
-                ST_Area_Spheroid(b.geometry) as a_roof,
-                GREATEST(0.0, ST_Area_Spheroid(b.geometry) - ST_Perimeter_Spheroid(b.geometry) * {eave_m} + 3.14159 * {eave_m * eave_m}) as a_wall,
-                b.height,
-                COALESCE(b.floor_count, 1) as floor_count,
-                CASE
-                    WHEN ST_Perimeter_Spheroid(b.geometry) > 0.0 THEN
-                        LEAST(1.0, GREATEST(0.0, 4.0 * pi() * ST_Area_Spheroid(b.geometry) / (ST_Perimeter_Spheroid(b.geometry) * ST_Perimeter_Spheroid(b.geometry))))
-                    ELSE NULL
-                END as compactness,
-                CASE
-                    WHEN z.landuse IS NOT NULL AND (z.landuse NOT IN ('commercial', 'retail') OR ST_Area_Spheroid(b.geometry) >= {comm_min}) THEN 1
-                    WHEN ST_Area_Spheroid(b.geometry) >= {large_low_min} AND COALESCE(b.floor_count, 1) <= {large_low_floors} THEN 1
-                    WHEN ST_Area_Spheroid(b.geometry) >= {rect_min} AND (ST_Area(b.geometry) / NULLIF(ST_Area(ST_Envelope(b.geometry)), 0)) >= {rect_rect} AND COALESCE(b.floor_count, 1) <= {rect_floors} THEN 1
-                    ELSE 0
-                END as is_nonres
+                ROW_NUMBER() OVER () AS b_row_id,
+                ST_SetCRS(b.geometry, 'OGC:CRS84') AS geom,
+                {height_expr} AS height,
+                {floor_expr} AS floor_count
             FROM read_parquet('{path}') b
-            LEFT JOIN (SELECT landuse, ST_SetCRS(geometry, 'OGC:CRS84') as geometry FROM read_parquet('{zones_path}')) z
-            ON ST_Within(ST_Centroid(b.geometry), z.geometry)
+            {conf_where}
+        ),
+        geom_metrics AS (
+            SELECT
+                b_row_id,
+                ST_Centroid(geom) AS centroid_geom,
+                ST_Area_Spheroid(geom) AS a_roof,
+                ST_Perimeter_Spheroid(geom) AS p_roof,
+                ST_Area(geom) / NULLIF(ST_Area(ST_Envelope(geom)), 0) AS env_rect,
+                height,
+                floor_count
+            FROM src
+        ),
+        b_dedup AS (
+            SELECT
+                g.b_row_id,
+                ANY_VALUE(g.centroid_geom) AS centroid_geom,
+                ANY_VALUE(g.a_roof) AS a_roof,
+                ANY_VALUE(g.p_roof) AS p_roof,
+                ANY_VALUE(g.env_rect) AS env_rect,
+                ANY_VALUE(g.floor_count) AS floor_count,
+                MAX(
+                    CASE
+                        WHEN z.landuse IS NOT NULL AND (z.landuse NOT IN ('commercial', 'retail', 'amenity:marketplace') OR g.a_roof >= {comm_min}) THEN 1
+                        ELSE 0
+                    END
+                ) AS osm_nonres
+            FROM geom_metrics g
+            LEFT JOIN (SELECT landuse, ST_SetCRS(geometry, 'OGC:CRS84') AS geometry FROM read_parquet('{zones_path}')) z
+            ON ST_Within(g.centroid_geom, z.geometry)
+            GROUP BY g.b_row_id
         )
+        SELECT
+            printf('%x', h3_latlng_to_cell(ST_Y(b.centroid_geom), ST_X(b.centroid_geom), {res})) AS h3_index,
+            ST_X(b.centroid_geom) AS lon,
+            ST_Y(b.centroid_geom) AS lat,
+            b.a_roof,
+            GREATEST(0.0, b.a_roof - b.p_roof * {eave_m} + 3.14159 * {eave_m * eave_m}) AS a_wall,
+            CASE
+                WHEN b.p_roof > 0.0 THEN LEAST(1.0, GREATEST(0.0, 4.0 * pi() * b.a_roof / (b.p_roof * b.p_roof)))
+                ELSE NULL
+            END AS compactness,
+            CASE
+                WHEN b.osm_nonres = 1 THEN 1
+                WHEN b.a_roof >= {large_low_min} AND b.floor_count <= {large_low_floors} THEN 1
+                WHEN b.a_roof >= {rect_min} AND b.env_rect >= {rect_rect} AND b.floor_count <= {rect_floors} THEN 1
+                ELSE 0
+            END AS is_nonres
+        FROM b_dedup b
+    """)
+
+    agg_query = """
         SELECT
             h3_index,
             COUNT(*) AS building_count,
             SUM(a_roof) AS footprint_area_m2,
             SUM(a_wall) AS footprint_wall_m2,
             SUM(CASE WHEN is_nonres = 0 THEN a_wall ELSE 0 END) AS net_res_footprint_m2,
-            SUM(CASE WHEN is_nonres = 0 AND height IS NOT NULL THEN a_wall * floor_count ELSE 0 END) AS explicit_floor_area_m2,
-            SUM(CASE WHEN is_nonres = 0 AND height IS NULL THEN a_wall ELSE 0 END) AS unknown_height_footprint_m2,
             SUM(CASE WHEN is_nonres = 1 THEN a_wall ELSE 0 END) AS removed_nonres_wall_m2,
             SUM(CASE WHEN is_nonres = 0 THEN 1 ELSE 0 END) AS residential_building_count,
-            SUM(CASE WHEN height IS NOT NULL THEN 1 ELSE 0 END) AS buildings_with_height,
+            AVG(CASE WHEN is_nonres = 0 THEN (CASE WHEN a_roof < 50.0 THEN 1.0 ELSE 0.0 END) END) AS res_share_lt50,
+            AVG(CASE WHEN is_nonres = 0 THEN (CASE WHEN a_roof < 60.0 THEN 1.0 ELSE 0.0 END) END) AS res_share_lt60,
             MEDIAN(CASE WHEN is_nonres = 0 THEN compactness ELSE NULL END) AS building_compactness
         FROM b_joined
         GROUP BY 1
     """
-    df = con.execute(query).df().set_index("h3_index")
+    df = con.execute(agg_query).df().set_index("h3_index")
+
+    pts = con.execute(
+        "SELECT h3_index, lon, lat FROM b_joined WHERE is_nonres = 0"
+    ).fetchnumpy()
     con.close()
+
     df = df.reindex(run.cells)
-    count_cols = [c for c in df.columns if c != "building_compactness"]
+    count_cols = ["building_count", "footprint_area_m2", "footprint_wall_m2", "net_res_footprint_m2", "removed_nonres_wall_m2", "residential_building_count"]
     df[count_cols] = df[count_cols].fillna(0.0)
-    df["building_compactness"] = df["building_compactness"].astype(float)
+    for col in ("res_share_lt50", "res_share_lt60", "building_compactness"):
+        df[col] = df[col].astype(float)
+
+    df["res_nn_p25"] = compute_h3_nearest_neighbor_p25(
+        pts["h3_index"], pts["lon"], pts["lat"], run.crs, run.cells
+    )
     return df, {
         "source": "data/raw/buildings.parquet",
         "zones_source": zones_path,
+        "min_confidence": min_conf,
         "eave_offset_m": eave_m,
         "assignment": "footprint centroid",
+        "nn_crs": run.crs,
     }
 
 
@@ -572,7 +686,7 @@ def build_pm25(run: RegionRun) -> LayerResult:
 
 def ensure_osm_extract(run: RegionRun) -> Path:
     """Downloads the dated Geofabrik extract named in the region config if not present."""
-    url = run.config["accessibility"]["osm_extract_url"]
+    url = run.config.get("spatial", {}).get("osm_extract_url") or run.config["accessibility"]["osm_extract_url"]
     target = run.path("data/raw/osm") / url.rsplit("/", 1)[-1]
     if target.exists():
         return target
@@ -637,21 +751,11 @@ def build_accessibility(run: RegionRun) -> LayerResult:
 GEE_LAYERS: dict[str, Callable[[RegionRun], LayerResult]] = {
     "sentinel2": build_sentinel2,
     "landsat": build_landsat,
-    "water": build_water,
-    "vegetation_probability": build_vegetation_probability,
-    "population": build_population,
     "settlement_class": build_settlement_class,
-    "night_lights": build_night_lights,
-    "no2": build_no2,
-    "modis_lst": build_modis_lst,
-    "open_buildings_floors": build_open_buildings_floors,
-    "ghs_built_volume": build_ghs_built_volume,
-    "topographic_hazard": build_topographic_hazard,
+    "ghs_residential": build_ghs_residential,
 }
 LOCAL_LAYERS: dict[str, Callable[[RegionRun], LayerResult]] = {
     "buildings": build_buildings,
-    "pm25": build_pm25,
-    "accessibility": build_accessibility,
 }
 
 
@@ -661,89 +765,39 @@ LOCAL_LAYERS: dict[str, Callable[[RegionRun], LayerResult]] = {
 
 
 def assemble_raw_features(run: RegionRun, layers: dict[str, pd.DataFrame], benchmarks) -> pd.DataFrame:
-    """Joins layers and derives the channel source columns, masks and heat island intensity."""
+    """Joins active Stage 3 layers and computes the pure physical Urban Built-Up Mask."""
     raw = pd.concat([layers[name] for name in layers], axis=1)
     raw.index.name = "h3_index"
 
-    raw["density_per_km2"] = population_density(raw["population"])
-    raw["is_residential"] = residential_mask(
-        raw["density_per_km2"], raw["building_count"],
-        benchmarks.min_density_per_km2, benchmarks.min_building_count,
-    )
-    raw["gross_floor_area_m2"] = combine_floor_area(
-        raw["explicit_floor_area_m2"], raw["unknown_height_footprint_m2"], raw["ob_mean_floors"]
+    raw["is_residential"] = urban_built_up_mask(
+        raw["smod_code"],
+        raw["residential_building_count"],
+        benchmarks.urban_smod_codes,
+        benchmarks.min_building_count,
     )
 
-    # Rescaled GHS residential ratio applied to residual unclassified buildings
-    if "built_surface_total_2023_m2" in raw.columns and "removed_nonres_wall_m2" in raw.columns:
-        from ..features.building_use import compute_rescaled_ghs_ratio
+    if "ghs_built_total_m2" in raw.columns and "ghs_built_nres_m2" in raw.columns:
+        raw["ghs_res_share"] = compute_ghs_res_share(raw["ghs_built_total_m2"], raw["ghs_built_nres_m2"])
+    for glcm_col in ("s2_res_glcm_contrast", "s2_res_glcm_homogeneity"):
+        if glcm_col in raw.columns:
+            raw[glcm_col] = raw[glcm_col].where(raw["is_residential"], np.nan)
 
-        res_ratio = compute_rescaled_ghs_ratio(
-            ghs_total_m2=raw["built_surface_total_2023_m2"],
-            ghs_nres_m2=raw["built_surface_nres_2023_m2"],
-            removed_nres_m2=raw["removed_nonres_wall_m2"],
-            unclassified_m2=raw["unknown_height_footprint_m2"],
-        )
-    elif "residential_ratio" in raw.columns:
-        res_ratio = raw["residential_ratio"]
-    else:
-        res_ratio = None
-
-    raw["residential_ratio"] = res_ratio if res_ratio is not None else 1.0
-    raw["floor_area_m2"] = combine_floor_area(
-        raw["explicit_floor_area_m2"],
-        raw["unknown_height_footprint_m2"],
-        raw["ob_mean_floors"],
-        residential_ratio=res_ratio,
+    hi_cfg = run.config.get("heat_island", {})
+    ring_k = int(hi_cfg.get("ring_k", 5))
+    min_ring_cells = int(hi_cfg.get("min_ring_cells", 10))
+    min_city_cells = int(hi_cfg.get("min_city_cells", 20))
+    raw["dlst_local_ring_k5"] = compute_local_urban_ring_dlst(
+        raw["lst_k"],
+        raw["is_residential"],
+        ring_k=ring_k,
+        min_ring_cells=min_ring_cells,
     )
-    raw["gross_space_sufficiency_ratio"] = compute_living_space_ratio(
-        raw["gross_floor_area_m2"], raw["population"], benchmarks.un_habitat_min_m2
+    raw["dlst_city_median"], city_lst = compute_city_urban_dlst(
+        raw["lst_k"],
+        raw["is_residential"],
+        min_city_cells=min_city_cells,
     )
-
-    # If GHS-BUILT-V 3D residential volume is available, derive space sufficiency ratio directly (Ticket 17)
-    if "built_volume_res_m3" in raw.columns:
-        raw["ghs_floor_area_m2"] = raw["built_volume_res_m3"] / 3.0
-        raw["space_sufficiency_ratio"] = compute_living_space_ratio(
-            raw["ghs_floor_area_m2"], raw["population"], benchmarks.un_habitat_min_m2
-        )
-    elif "ghs_floor_area_m2" in raw.columns:
-        raw["space_sufficiency_ratio"] = compute_living_space_ratio(
-            raw["ghs_floor_area_m2"], raw["population"], benchmarks.un_habitat_min_m2
-        )
-    else:
-        raw["space_sufficiency_ratio"] = compute_living_space_ratio(
-            raw["floor_area_m2"], raw["population"], benchmarks.un_habitat_min_m2
-        )
-
-    # Residential Plan Area Fraction on GHS residential mask (Ticket 18)
-    if "net_res_footprint_m2" in raw.columns:
-        raw["residential_plan_area_fraction"] = compute_residential_plan_area_fraction(
-            raw["net_res_footprint_m2"], raw.index, raw["is_residential"]
-        )
-    else:
-        raw["residential_plan_area_fraction"] = np.nan
-
-    # Building Compactness (Ticket 19)
-    if "building_compactness" not in raw.columns:
-        raw["building_compactness"] = np.nan
-
-    # Topographic Slope Safety (Ticket 20)
-    if "terrain_safety_inv" not in raw.columns:
-        if "hazard_slope_share" in raw.columns:
-            raw["terrain_safety_inv"] = compute_terrain_safety(raw["hazard_slope_share"])
-        else:
-            raw["terrain_safety_inv"] = 1.0
-
-    hi_cfg = run.config["heat_island"]
-    background = heat_island_background_mask(
-        raw["is_residential"], raw["smod_code"], raw["veg_probability"],
-        hi_cfg["background_smod_codes"], hi_cfg["min_veg_probability"],
-    )
-    raw["is_heat_background"] = background
-    raw["heat_island_intensity_k"], background_lst = compute_heat_island_intensity(
-        raw["lst_k"], background, hi_cfg["min_background_cells"]
-    )
-    raw.attrs["heat_background_lst_k"] = background_lst
+    raw.attrs["city_urban_median_lst_k"] = city_lst
 
     centroids = [h3.cell_to_latlng(c) for c in raw.index]
     raw["lat"] = [lat for lat, _ in centroids]
@@ -763,69 +817,51 @@ def quality_report(
     benchmarks,
     is_modelled: pd.Series,
 ) -> dict[str, Any]:
-    """Representativeness, coverage, sanity and epoch-gap checks for the Stage 3 report."""
+    """Representativeness, coverage, clipping, and correlation checks for the Stage 3 report."""
     res = raw["is_residential"]
-    accessibility_cfg = run.config["accessibility"]
     tier_shares = {
         prefix: raw.loc[res, f"{prefix}_tier"].value_counts(normalize=True).sort_index().to_dict()
         for prefix in ("s2", "lst")
+        if f"{prefix}_tier" in raw.columns
     }
     report: dict[str, Any] = {
         "region": run.config["project"]["study_area"],
         "reference_year": run.year,
         "benchmarks_version": benchmarks.version,
         "benchmarks_provisional": benchmarks.provisional,
+        "urban_mask_rule": {
+            "urban_smod_codes": list(benchmarks.urban_smod_codes),
+            "min_residential_building_count": int(benchmarks.min_building_count),
+        },
         "cells": len(raw),
         "residential_cells": int(res.sum()),
         "modelled_cells": int(is_modelled.sum()),
-        "population_total": float(raw["population"].sum()),
         "window_tier_shares_residential": tier_shares,
         "tier3_share_flag": {k: float(v.get(3, 0.0)) > 0.10 for k, v in tier_shares.items()},
         "clip_shares": clipped_shares(raw, benchmarks, res).reset_index().to_dict(orient="records"),
-        "mask_sensitivity": mask_sensitivity(
-            raw["density_per_km2"], raw["building_count"], benchmarks.sensitivity_densities_per_km2,
-            {"space_sufficiency_ratio": raw["space_sufficiency_ratio"], "amenities_15m": raw["amenities_15m"]},
-        ).reset_index().to_dict(orient="records"),
-        "epoch_gap_built_surface": built_surface_change_share(
-            raw["built_surface_early_m2"], raw["built_surface_late_m2"], res
-        ),
-        "heat_island": {
-            "background_cells": int(raw["is_heat_background"].sum()),
-            "background_lst_k": raw.attrs.get("heat_background_lst_k"),
-        },
-        "sanity_spearman_residential": {
-            "ndvi_vs_dw_veg_probability": _spearman(raw.loc[res, "ndvi"], raw.loc[res, "veg_probability"]),
-            "landsat_lst_vs_modis_lst": _spearman(raw.loc[res, "lst_k"], raw.loc[res, "modis_lst_k"]),
-        },
         "buildings": {
-            "footprints_with_height_share": float(raw["buildings_with_height"].sum() / max(raw["building_count"].sum(), 1)),
-            "cells_with_open_buildings_floors": int(raw["ob_mean_floors"].notna().sum()),
-            "mean_residential_ratio": float(raw.loc[res, "residential_ratio"].mean()) if "residential_ratio" in raw.columns else 1.0,
-            "total_wall_area_km2": float(raw["footprint_wall_m2"].sum() / 1e6) if "footprint_wall_m2" in raw.columns else None,
-            "removed_nonres_wall_area_km2": float(raw["removed_nonres_wall_m2"].sum() / 1e6) if "removed_nonres_wall_m2" in raw.columns else None,
-        },
-        "accessibility": {
-            "residential_cells_snap_over_limit": int(
-                (raw.loc[res, "snap_distance_m"] > accessibility_cfg["max_snap_distance_m"]).sum()
+            "total_buildings": int(raw["building_count"].sum()) if "building_count" in raw.columns else 0,
+            "residential_buildings": (
+                int(raw["residential_building_count"].sum()) if "residential_building_count" in raw.columns else 0
             ),
-            "max_snap_distance_m": accessibility_cfg["max_snap_distance_m"],
+            "removed_nonres_wall_area_km2": (
+                float(raw["removed_nonres_wall_m2"].sum() / 1e6) if "removed_nonres_wall_m2" in raw.columns else None
+            ),
         },
         "missing_residential_values": scaled[res].isna().sum().to_dict(),
-        "lst_range_k": [float(raw["lst_k"].min()), float(raw["lst_k"].max())],
+        "lst_range_k": (
+            [float(raw["lst_k"].min()), float(raw["lst_k"].max())] if "lst_k" in raw.columns else [None, None]
+        ),
+        "heat_island": {
+            "ring_k": int(run.config.get("heat_island", {}).get("ring_k", 5)),
+            "valid_local_ring_cells": int(raw.loc[res, "dlst_local_ring_k5"].notna().sum())
+            if "dlst_local_ring_k5" in raw.columns
+            else 0,
+            "city_urban_median_lst_k": raw.attrs.get("city_urban_median_lst_k"),
+        },
         "layers": layer_provenance(run, [*GEE_LAYERS, *LOCAL_LAYERS]),
+        "spearman_residential_scaled": scaled[res].corr(method="spearman").round(3).to_dict(),
     }
-
-    susenas_csv = run.path("data/external/susenas/bps_susenas_housing_2023.csv")
-    admin_geojson = run.path("data/interim/admin_boundaries_study_area.geojson")
-    if susenas_csv.exists() and admin_geojson.exists():
-        from ..analysis.validate_living_space import evaluate_against_susenas
-
-        try:
-            eval_table = evaluate_against_susenas(raw, admin_geojson, susenas_csv)
-            report["susenas_validation"] = eval_table.to_dict(orient="records")
-        except Exception as e:
-            logger.warning("Could not evaluate against Susenas: %s", e)
-    report["spearman_residential_scaled"] = scaled[res].corr(method="spearman").round(3).to_dict()
     return report
 
 
@@ -922,12 +958,8 @@ def run_stage3(
     n_dim = len(benchmarks.channels)
     matrix_path = processed / f"feature_matrix_{n_dim}d.parquet"
     matrix.to_parquet(matrix_path)
-    matrix.to_parquet(processed / "feature_matrix_7d.parquet")
-    matrix.to_parquet(processed / "feature_matrix_10d.parquet")
     npy_path = processed / f"feature_matrix_{n_dim}d.npy"
     np.save(npy_path, X)
-    np.save(processed / "feature_matrix_7d.npy", X)
-    np.save(processed / "feature_matrix_10d.npy", X)
 
     geo = gpd.GeoDataFrame(
         pd.concat([raw, scaled.add_suffix("_scaled")], axis=1),

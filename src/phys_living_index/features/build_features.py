@@ -26,9 +26,18 @@ import yaml
 
 TRANSFORMS = ("none", "log1p")
 ORIENTATIONS = ("positive", "inverted", "context")
-FRICTION_GROUPS = ("socio", "bio")
+FRICTION_GROUPS = ("socio", "bio", "built_form", "micro_env")
+DEFAULT_URBAN_SMOD_CODES: tuple[int, ...] = (21, 22, 23, 30)
 
-# The lean, orthogonal 7-channel physical disparity feature dimensions (Revision 5)
+# Active v2 core physical disparity feature dimensions (ADR 0005)
+FEATURE_DIMENSIONS_V2_CORE: list[str] = [
+    "res_share_lt50",       # 1. Share of residential footprints < 50 m^2 [built_form]
+    "res_nn_p25",           # 2. P25 nearest-neighbor spacing between residential footprints (m) [built_form]
+    "vegetation_ndvi",      # 3. Canopy greenness (Sentinel-2 NDVI) [micro_env]
+    "dlst_local_ring_k5",   # 4. Intra-urban k=5 local-ring Delta LST (K) [micro_env]
+]
+
+# Legacy 7-channel physical disparity feature dimensions (Revision 5)
 FEATURE_DIMENSIONS_7D: list[str] = [
     "space_sufficiency_ratio",        # 1. Living Space Sufficiency Ratio (3D JRC GHS-BUILT-V) [socio]
     "residential_plan_area_fraction", # 2. Residential Plan Area Fraction (Ground Crowding on GHS Mask) [socio]
@@ -81,28 +90,29 @@ class ChannelBenchmark:
 
 @dataclass(frozen=True)
 class BenchmarkSet:
-    """A versioned set of universal benchmarks (ADR 0003)."""
+    """A versioned set of universal benchmarks (ADR 0003 / ADR 0005)."""
 
     version: str
     provisional: bool
     channels: tuple[ChannelBenchmark, ...]
-    min_density_per_km2: float
     min_building_count: int
-    sensitivity_densities_per_km2: tuple[float, ...]
-    un_habitat_min_m2: float
     clip_flag_share: float
+    urban_smod_codes: tuple[int, ...] = DEFAULT_URBAN_SMOD_CODES
+    min_density_per_km2: float | None = None
+    sensitivity_densities_per_km2: tuple[float, ...] = ()
+    un_habitat_min_m2: float | None = None
 
     @property
     def names(self) -> list[str]:
         return [c.name for c in self.channels]
 
     def group_indices(self, group: str) -> list[int]:
-        """Column indices of channels in a Stage 4 friction group ('socio' or 'bio')."""
+        """Column indices of channels in a Stage 4 domain group ('built_form', 'micro_env', 'socio', or 'bio')."""
         return [i for i, c in enumerate(self.channels) if c.friction_group == group]
 
 
 def benchmark_path(version: str, config_dir: str | Path) -> Path:
-    """Path of the benchmark file for a version, e.g. configs/benchmarks/benchmarks_v0.yaml."""
+    """Path of the benchmark file for a version, e.g. configs/benchmarks/benchmarks_v2.yaml."""
     return Path(config_dir) / "benchmarks" / f"benchmarks_{version}.yaml"
 
 
@@ -112,16 +122,22 @@ def parse_benchmarks(raw: dict[str, Any]) -> BenchmarkSet:
     names = [c.name for c in channels]
     if len(set(names)) != len(names):
         raise ValueError("Duplicate channel names in benchmark file")
-    residential = raw["residential"]
+    residential = raw.get("residential", {})
+    smod_codes = tuple(int(code) for code in residential.get("urban_smod_codes", DEFAULT_URBAN_SMOD_CODES))
+    min_density = residential.get("min_density_per_km2")
+    sens_densities = residential.get("sensitivity_densities_per_km2", ())
+    living_space = raw.get("living_space", {})
+    un_min = living_space.get("un_habitat_min_m2")
     return BenchmarkSet(
         version=str(raw["version"]),
         provisional=bool(raw.get("provisional", False)),
         channels=channels,
-        min_density_per_km2=float(residential["min_density_per_km2"]),
-        min_building_count=int(residential["min_building_count"]),
-        sensitivity_densities_per_km2=tuple(float(d) for d in residential["sensitivity_densities_per_km2"]),
-        un_habitat_min_m2=float(raw["living_space"]["un_habitat_min_m2"]),
+        min_building_count=int(residential.get("min_building_count", 1)),
         clip_flag_share=float(raw["clip_flag_share"]),
+        urban_smod_codes=smod_codes,
+        min_density_per_km2=float(min_density) if min_density is not None else None,
+        sensitivity_densities_per_km2=tuple(float(d) for d in sens_densities),
+        un_habitat_min_m2=float(un_min) if un_min is not None else None,
     )
 
 
@@ -276,6 +292,20 @@ def compute_terrain_safety(hazard_slope_share: pd.Series) -> pd.Series:
     return (1.0 - hazard_slope_share.fillna(0.0)).clip(lower=0.0, upper=1.0)
 
 
+def compute_ghs_res_share(
+    built_total_m2: pd.Series,
+    built_nres_m2: pd.Series,
+) -> pd.Series:
+    """
+    Conditional GHSL residential share: max(0, total - nres) / total in [0, 1].
+    Cells with zero or missing total built-up surface yield NaN rather than 0.
+    """
+    total = built_total_m2.astype(float)
+    nres = built_nres_m2.reindex(total.index).fillna(0.0).astype(float)
+    res = (total - nres).clip(lower=0.0)
+    return (res / total.where(total > 0.0)).clip(lower=0.0, upper=1.0)
+
+
 def compute_living_space_ratio(
     floor_area_m2: pd.Series,
     population: pd.Series,
@@ -330,6 +360,52 @@ def compute_heat_island_intensity(
         )
     background_lst = float(background.median())
     return lst_k - background_lst, background_lst
+
+
+def _normalize_urban_mask(urban_mask: pd.Series, index: pd.Index) -> pd.Series:
+    return urban_mask.reindex(index).fillna(False).astype(bool)
+
+
+def compute_local_urban_ring_dlst(
+    lst_k: pd.Series,
+    urban_mask: pd.Series,
+    ring_k: int = 5,
+    min_ring_cells: int = 10,
+) -> pd.Series:
+    """
+    Computes intra-urban thermal anomaly (dlst_local_ring_k5): cell LST minus the
+    median LST of valid urban-masked neighbors within an H3 k-ring. Cells outside
+    the Urban Built-Up Mask or with fewer than `min_ring_cells` valid neighbors yield NaN.
+    """
+    import h3
+
+    mask = _normalize_urban_mask(urban_mask, lst_k.index)
+    valid = mask & lst_k.notna()
+    urban_lst = {str(cell): float(val) for cell, val in lst_k[valid].items()}
+
+    out = pd.Series(np.nan, index=lst_k.index, dtype=float)
+    for cell, val in urban_lst.items():
+        nbr_vals = [urban_lst[nbr] for nbr in h3.grid_disk(cell, ring_k) if nbr != cell and nbr in urban_lst]
+        if len(nbr_vals) >= min_ring_cells:
+            out.loc[cell] = val - float(np.median(nbr_vals))
+    return out
+
+
+def compute_city_urban_dlst(
+    lst_k: pd.Series,
+    urban_mask: pd.Series,
+    min_city_cells: int = 20,
+) -> tuple[pd.Series, float]:
+    """
+    Sensitivity thermal anomaly: urban cell LST minus median LST of all valid
+    urban-masked cells in the region (Chakraborty et al., 2019 citywide baseline).
+    """
+    mask = _normalize_urban_mask(urban_mask, lst_k.index)
+    valid_vals = lst_k[mask].dropna()
+    if len(valid_vals) < min_city_cells:
+        return pd.Series(np.nan, index=lst_k.index, dtype=float), float("nan")
+    city_med = float(valid_vals.median())
+    return lst_k.where(mask) - city_med, city_med
 
 
 def assemble_h3_features(
