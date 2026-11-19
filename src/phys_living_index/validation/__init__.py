@@ -17,13 +17,16 @@ from .run_validation import (
     run_dual_validation,
 )
 from .validate_kotaku import (
+    MAINLAND_DKI_MUNICIPALITIES,
     compute_h3_kotaku_spatial_overlap,
     evaluate_dki_severity_stratification,
     evaluate_kotaku_subdimension_concordance,
     evaluate_slum_binary_classification,
+    scope_gdf_to_jurisdiction,
 )
 
 __all__ = [
+    "MAINLAND_DKI_MUNICIPALITIES",
     "audit_bps_poverty_correlation",
     "classify_4quadrant_divergence",
     "compute_h3_kotaku_spatial_overlap",
@@ -37,5 +40,6 @@ __all__ = [
     "match_h3_to_rwi_grid",
     "profile_quadrant_deficits",
     "run_dual_validation",
+    "scope_gdf_to_jurisdiction",
     "zonal_aggregate_bps",
 ]

@@ -3,6 +3,7 @@ Micro-scale ground-truth empirical validation engine benchmarking against the
 official Kementerian PUPR SIM-KOTAKU national informal settlement registry.
 """
 
+from collections.abc import Sequence
 from typing import Any
 
 import geopandas as gpd
@@ -17,12 +18,58 @@ from sklearn.metrics import (
     roc_curve,
 )
 
+MAINLAND_DKI_MUNICIPALITIES: tuple[str, ...] = (
+    "Jakarta Barat",
+    "Jakarta Pusat",
+    "Jakarta Selatan",
+    "Jakarta Timur",
+    "Jakarta Utara",
+)
+
+
+def _metric_centroids(gdf: gpd.GeoDataFrame) -> gpd.GeoSeries:
+    """Computes cell centroids in a planar metric CRS to avoid geographic distortion warnings."""
+    if gdf.crs is not None and gdf.crs.is_geographic:
+        metric_crs = gdf.estimate_utm_crs() or "EPSG:3857"
+        return gdf.geometry.to_crs(metric_crs).centroid.to_crs(gdf.crs)
+    return gdf.geometry.centroid
+
+
+def scope_gdf_to_jurisdiction(
+    h3_gdf: gpd.GeoDataFrame,
+    boundary_gdf: gpd.GeoDataFrame,
+    include_names: Sequence[str] | None = None,
+    name_col: str = "clean_name",
+) -> gpd.GeoDataFrame:
+    """
+    Clips an H3 GeoDataFrame strictly to cells whose centroids lie inside the named
+    administrative jurisdiction polygons (e.g. Mainland DKI Jakarta municipalities),
+    preventing rectangular bbox leakage into neighboring unsurveyed regions.
+    """
+    scope = boundary_gdf
+    if include_names is not None:
+        if name_col not in scope.columns:
+            raise KeyError(f"Column {name_col!r} not found in boundary GeoDataFrame")
+        scope = scope[scope[name_col].isin(list(include_names))]
+    if len(scope) == 0:
+        return h3_gdf.iloc[0:0].copy()
+
+    if h3_gdf.crs != scope.crs:
+        scope = scope.to_crs(h3_gdf.crs)
+    boundary_union = scope.geometry.union_all()
+    centroids = _metric_centroids(h3_gdf)
+    inside = centroids.within(boundary_union)
+    return h3_gdf.loc[inside].copy()
+
 
 def compute_h3_kotaku_spatial_overlap(
     h3_gdf: gpd.GeoDataFrame,
     kotaku_gdf: gpd.GeoDataFrame,
     overlap_threshold: float = 0.10,
     h3_id_col: str = "h3_index",
+    jurisdiction_gdf: gpd.GeoDataFrame | None = None,
+    include_names: Sequence[str] | None = None,
+    name_col: str = "clean_name",
 ) -> gpd.GeoDataFrame:
     """
     Computes spatial polygon intersection between H3 hexagonal cells and KOTAKU
@@ -33,6 +80,11 @@ def compute_h3_kotaku_spatial_overlap(
         kotaku_gdf: GeoDataFrame containing gazetted informal settlement polygons.
         overlap_threshold: Minimum area overlap fraction [0.0, 1.0] to flag as slum (default 10%).
         h3_id_col: Name of unique H3 identifier column.
+        jurisdiction_gdf: Optional administrative boundary GeoDataFrame defining the surveyed
+            municipality/province. Cells whose centroids lie outside `jurisdiction_gdf` get
+            `is_slum = NaN` so unsurveyed neighbors are never treated as non-slum zeros.
+        include_names: Optional sequence of municipality names inside `jurisdiction_gdf`.
+        name_col: Column in `jurisdiction_gdf` matched against `include_names`.
 
     Returns:
         GeoDataFrame of h3_gdf with overlap_pct, is_slum, and propagated ground-truth attributes.
@@ -89,6 +141,15 @@ def compute_h3_kotaku_spatial_overlap(
             result[col] = result[h3_id_col].map(mapping).combine_first(result[col])
 
     result["is_slum"] = (result["overlap_pct"] >= overlap_threshold).astype(int)
+    if jurisdiction_gdf is not None:
+        scoped = scope_gdf_to_jurisdiction(
+            result, jurisdiction_gdf, include_names=include_names, name_col=name_col
+        )
+        in_scope = result.index.isin(scoped.index)
+        result["in_jurisdiction"] = in_scope
+        result["is_slum"] = result["is_slum"].astype(float).where(in_scope, np.nan)
+        result["overlap_area"] = result["overlap_area"].where(in_scope, np.nan)
+        result["overlap_pct"] = result["overlap_pct"].where(in_scope, np.nan)
     return result
 
 

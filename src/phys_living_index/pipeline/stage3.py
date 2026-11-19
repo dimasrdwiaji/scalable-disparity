@@ -163,41 +163,45 @@ def build_sentinel2(run: RegionRun) -> LayerResult:
         crs=run.crs,
         batch_size=run.batch_size,
     )
-    low, high = _ghsl_epochs(run.config)
-    glcm_size = int(cfg.get("glcm_window_size", 3))
-    glcm_ndvi_max = float(cfg.get("glcm_ndvi_max", 0.35))
-    all_dry_ranges = [date_range for tier in tiers for date_range in tier]
-    glcm_img = sentinel2_residential_glcm_image(
-        run.bbox,
-        all_dry_ranges,
-        year=run.year,
-        epoch_low=low,
-        epoch_high=high,
-        cs_cdf_threshold=cfg["cs_cdf_threshold"],
-        glcm_size=glcm_size,
-        ndvi_max=glcm_ndvi_max,
-    )
-    glcm_red = reduce_image_over_cells(
-        glcm_img,
-        run.cells,
-        ["s2_res_glcm_contrast", "s2_res_glcm_homogeneity"],
-        scale=cfg["scale_m"],
-        extra_stats=(),
-        crs=run.crs,
-        batch_size=run.batch_size,
-    )
     table = table.rename(columns={c: f"s2_{c}" for c in ["n_clear", "valid_frac", "median_doy", "tier"]})
-    table["s2_res_glcm_contrast"] = glcm_red["s2_res_glcm_contrast_mean"]
-    table["s2_res_glcm_homogeneity"] = glcm_red["s2_res_glcm_homogeneity_mean"]
-    return table, {
+    include_glcm = bool(cfg.get("include_glcm", False))
+    prov: dict[str, Any] = {
         "asset": S2_COLLECTION,
         "cloud_mask": f"cs_cdf>={cfg['cs_cdf_threshold']}",
         "scale_m": cfg["scale_m"],
-        "glcm_window_size": glcm_size,
-        "glcm_ndvi_max": glcm_ndvi_max,
+        "include_glcm": include_glcm,
         "crs": run.crs,
         "tiers": tier_prov,
     }
+    if include_glcm:
+        low, high = _ghsl_epochs(run.config)
+        glcm_size = int(cfg.get("glcm_window_size", 3))
+        glcm_ndvi_max = float(cfg.get("glcm_ndvi_max", 0.35))
+        all_dry_ranges = [date_range for tier in tiers for date_range in tier]
+        glcm_img = sentinel2_residential_glcm_image(
+            run.bbox,
+            all_dry_ranges,
+            year=run.year,
+            epoch_low=low,
+            epoch_high=high,
+            cs_cdf_threshold=cfg["cs_cdf_threshold"],
+            glcm_size=glcm_size,
+            ndvi_max=glcm_ndvi_max,
+        )
+        glcm_red = reduce_image_over_cells(
+            glcm_img,
+            run.cells,
+            ["s2_res_glcm_contrast", "s2_res_glcm_homogeneity"],
+            scale=cfg["scale_m"],
+            extra_stats=(),
+            crs=run.crs,
+            batch_size=run.batch_size,
+        )
+        table["s2_res_glcm_contrast"] = glcm_red["s2_res_glcm_contrast_mean"]
+        table["s2_res_glcm_homogeneity"] = glcm_red["s2_res_glcm_homogeneity_mean"]
+        prov["glcm_window_size"] = glcm_size
+        prov["glcm_ndvi_max"] = glcm_ndvi_max
+    return table, prov
 
 
 def build_ghs_residential(run: RegionRun) -> LayerResult:
@@ -230,8 +234,14 @@ def build_landsat(run: RegionRun) -> LayerResult:
     )
 
     cfg = run.config["compositing"]["landsat"]
+    min_lst_k = float(cfg["min_lst_k"]) if cfg.get("min_lst_k") is not None else 273.15
     table, tiers = reduce_tiered_composite(
-        lambda ranges: landsat_lst_collection(run.bbox, ranges, cfg["max_st_uncertainty_k"]),
+        lambda ranges: landsat_lst_collection(
+            run.bbox,
+            ranges,
+            cfg["max_st_uncertainty_k"],
+            min_lst_k=min_lst_k,
+        ),
         ["lst"],
         _tiers(cfg["tiers"]),
         run.cells,
@@ -243,7 +253,7 @@ def build_landsat(run: RegionRun) -> LayerResult:
     )
     table = table.rename(columns={"lst": "lst_k", **{c: f"lst_{c}" for c in ["n_clear", "valid_frac", "median_doy", "tier"]}})
     return table, {"asset": list(LANDSAT_COLLECTIONS), "band": "ST_B10", "scale_m": cfg["scale_m"],
-                   "crs": run.crs, "tiers": tiers}
+                   "min_lst_k": min_lst_k, "crs": run.crs, "tiers": tiers}
 
 
 def build_water(run: RegionRun) -> LayerResult:
@@ -557,6 +567,8 @@ def build_buildings(run: RegionRun) -> LayerResult:
     rect_min = float(use_cfg.get("rect_warehouse_min_m2", 1000.0))
     rect_rect = float(use_cfg.get("rect_warehouse_min_rectangularity", 0.80))
     rect_floors = float(use_cfg.get("rect_warehouse_max_floors", 2.0))
+    ind_cluster_min = int(use_cfg.get("industrial_cluster_min_count", 10))
+    ind_small_max = float(use_cfg.get("industrial_small_home_max_m2", 100.0))
 
     zones_path = ensure_osm_nonres_zones(run).as_posix()
 
@@ -587,6 +599,7 @@ def build_buildings(run: RegionRun) -> LayerResult:
             SELECT
                 b_row_id,
                 ST_Centroid(geom) AS centroid_geom,
+                printf('%x', h3_latlng_to_cell(ST_Y(ST_Centroid(geom)), ST_X(ST_Centroid(geom)), {res})) AS h3_index,
                 ST_Area_Spheroid(geom) AS a_roof,
                 ST_Perimeter_Spheroid(geom) AS p_roof,
                 ST_Area(geom) / NULLIF(ST_Area(ST_Envelope(geom)), 0) AS env_rect,
@@ -594,27 +607,51 @@ def build_buildings(run: RegionRun) -> LayerResult:
                 floor_count
             FROM src
         ),
-        b_dedup AS (
+        zones AS (
+            SELECT
+                ROW_NUMBER() OVER () AS zone_id,
+                landuse,
+                ST_SetCRS(geometry, 'OGC:CRS84') AS geometry
+            FROM read_parquet('{zones_path}')
+        ),
+        zone_joined AS (
             SELECT
                 g.b_row_id,
-                ANY_VALUE(g.centroid_geom) AS centroid_geom,
-                ANY_VALUE(g.a_roof) AS a_roof,
-                ANY_VALUE(g.p_roof) AS p_roof,
-                ANY_VALUE(g.env_rect) AS env_rect,
-                ANY_VALUE(g.floor_count) AS floor_count,
+                g.h3_index,
+                g.centroid_geom,
+                g.a_roof,
+                g.p_roof,
+                g.env_rect,
+                g.floor_count,
+                z.landuse,
+                SUM(CASE WHEN z.landuse = 'industrial' AND g.a_roof < {ind_small_max} THEN 1 ELSE 0 END)
+                    OVER (PARTITION BY g.h3_index, z.zone_id) AS ind_small_cnt
+            FROM geom_metrics g
+            LEFT JOIN zones z
+            ON ST_Within(g.centroid_geom, z.geometry)
+        ),
+        b_dedup AS (
+            SELECT
+                b_row_id,
+                ANY_VALUE(h3_index) AS h3_index,
+                ANY_VALUE(centroid_geom) AS centroid_geom,
+                ANY_VALUE(a_roof) AS a_roof,
+                ANY_VALUE(p_roof) AS p_roof,
+                ANY_VALUE(env_rect) AS env_rect,
+                ANY_VALUE(floor_count) AS floor_count,
                 MAX(
                     CASE
-                        WHEN z.landuse IS NOT NULL AND (z.landuse NOT IN ('commercial', 'retail', 'amenity:marketplace') OR g.a_roof >= {comm_min}) THEN 1
-                        ELSE 0
+                        WHEN landuse IS NULL THEN 0
+                        WHEN landuse IN ('commercial', 'retail', 'amenity:marketplace') AND a_roof < {comm_min} THEN 0
+                        WHEN landuse = 'industrial' AND ind_small_cnt >= {ind_cluster_min} AND a_roof < {ind_small_max} THEN 0
+                        ELSE 1
                     END
                 ) AS osm_nonres
-            FROM geom_metrics g
-            LEFT JOIN (SELECT landuse, ST_SetCRS(geometry, 'OGC:CRS84') AS geometry FROM read_parquet('{zones_path}')) z
-            ON ST_Within(g.centroid_geom, z.geometry)
-            GROUP BY g.b_row_id
+            FROM zone_joined
+            GROUP BY b_row_id
         )
         SELECT
-            printf('%x', h3_latlng_to_cell(ST_Y(b.centroid_geom), ST_X(b.centroid_geom), {res})) AS h3_index,
+            b.h3_index,
             ST_X(b.centroid_geom) AS lon,
             ST_Y(b.centroid_geom) AS lat,
             b.a_roof,
@@ -668,6 +705,8 @@ def build_buildings(run: RegionRun) -> LayerResult:
         "zones_source": zones_path,
         "min_confidence": min_conf,
         "eave_offset_m": eave_m,
+        "industrial_cluster_min_count": ind_cluster_min,
+        "industrial_small_home_max_m2": ind_small_max,
         "assignment": "footprint centroid",
         "nn_crs": run.crs,
     }

@@ -151,3 +151,38 @@ def test_evaluate_kotaku_subdimension_concordance():
     # Expect negative correlation: higher adequacy -> lower defect %
     assert concordance["r_space_vs_k1_a_p"]["pearson_r"] < -0.9
     assert concordance["a_amenity_vs_k2_b_p"]["spearman_rho"] < -0.9
+
+
+def test_jurisdiction_boundary_masking_prevents_out_of_scope_zero_leakage():
+    from shapely.geometry import box
+
+    from phys_living_index.validation.validate_kotaku import (
+        compute_h3_kotaku_spatial_overlap,
+        scope_gdf_to_jurisdiction,
+    )
+
+    h3_gdf = gpd.GeoDataFrame(
+        {
+            "h3_index": ["c_dki_slum", "c_dki_formal", "c_outside_bodetabek"],
+            "geometry": [box(106.80, -6.20, 106.81, -6.19), box(106.82, -6.20, 106.83, -6.19), box(106.95, -6.20, 106.96, -6.19)],
+        },
+        crs="EPSG:4326",
+    )
+    kotaku_gdf = gpd.GeoDataFrame({"KAT_TEXT": ["Berat"], "geometry": [box(106.80, -6.20, 106.81, -6.19)]}, crs="EPSG:4326")
+    adm_gdf = gpd.GeoDataFrame(
+        {
+            "clean_name": ["Jakarta Pusat", "Kota Bekasi"],
+            "geometry": [box(106.79, -6.22, 106.85, -6.18), box(106.94, -6.22, 107.00, -6.18)],
+        },
+        crs="EPSG:4326",
+    )
+
+    scoped = scope_gdf_to_jurisdiction(h3_gdf, adm_gdf, include_names=["Jakarta Pusat"])
+    assert scoped["h3_index"].tolist() == ["c_dki_slum", "c_dki_formal"]
+
+    out = compute_h3_kotaku_spatial_overlap(
+        h3_gdf, kotaku_gdf, jurisdiction_gdf=adm_gdf, include_names=["Jakarta Pusat"]
+    ).set_index("h3_index")
+    assert out.loc["c_dki_slum", "is_slum"] == 1.0
+    assert out.loc["c_dki_formal", "is_slum"] == 0.0
+    assert np.isnan(out.loc["c_outside_bodetabek", "is_slum"])

@@ -53,6 +53,10 @@ channels:
     friction_group: micro_env
     bound_source: provisional
 
+# Active model dimensionality is locked at D=4 after Mainland DKI 3-gate screening
+# rejected s2_res_glcm_contrast, s2_res_glcm_homogeneity, and ghs_res_share.
+promoted_channels: []
+
 candidate_channels:
   - name: s2_res_glcm_contrast
     source: s2_res_glcm_contrast

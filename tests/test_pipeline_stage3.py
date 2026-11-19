@@ -323,3 +323,116 @@ def test_run_stage3_dynamic_d4_d5_d6_scaling_and_clip_flag_qa(region, active_cha
         assert not bool(matrix.loc[cells[0], "is_modelled"])
         assert not bool(geo.loc[cells[0], "is_modelled"])
         assert bool(matrix.loc[cells[0], "is_residential"])
+
+
+def test_build_buildings_industrial_cluster_small_home_exemption(region):
+    import geopandas as gpd
+    import h3
+    import pyproj
+    from shapely.geometry import box
+
+    config_path, root, cells = region
+    (root / "data" / "interim" / "layers" / "buildings.parquet").unlink()
+    smod_path = root / "data" / "interim" / "layers" / "settlement_class.parquet"
+    smod_df = pd.read_parquet(smod_path)
+    smod_df["smod_code"] = 30
+    write_table_with_provenance(smod_df, smod_path, {"synthetic": True})
+
+    to_wgs = pyproj.Transformer.from_crs("EPSG:32748", "EPSG:4326", always_xy=True).transform
+    to_utm = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:32748", always_xy=True).transform
+
+    def metric_poly(cx: float, cy: float, width: float, height: float):
+        x0, y0 = to_wgs(cx - width / 2.0, cy - height / 2.0)
+        x1, y1 = to_wgs(cx + width / 2.0, cy + height / 2.0)
+        return box(x0, y0, x1, y1)
+
+    cell_kampung, cell_factory = cells[0], cells[1]
+    lat0, lon0 = h3.cell_to_latlng(cell_kampung)
+    x0, y0 = to_utm(lon0, lat0)
+    lat1, lon1 = h3.cell_to_latlng(cell_factory)
+    x1, y1 = to_utm(lon1, lat1)
+
+    # Cell 0: industrial zone housing 12 small kampung homes (6x6 = 36 m2 < 100) + 1 industrial hall (20x15 = 300 m2 >= 100)
+    # -> >= 10 small homes triggers cluster exemption: keeps the 12 homes, still excludes the 300 m2 hall!
+    geoms = [metric_poly(x0 - 80.0 + i * 10.0, y0, 6.0, 6.0) for i in range(12)]
+    geoms.append(metric_poly(x0, y0 + 80.0, 20.0, 15.0))
+    # Cell 1: isolated factory zone with only 2 small guard sheds (< 10) + 1 large warehouse -> ALL excluded
+    geoms.append(metric_poly(x1 - 20.0, y1, 5.0, 5.0))
+    geoms.append(metric_poly(x1 + 20.0, y1, 6.0, 6.0))
+    geoms.append(metric_poly(x1, y1 + 60.0, 30.0, 20.0))
+
+    b_gdf = gpd.GeoDataFrame(
+        {"height": [np.nan] * len(geoms), "confidence": [0.9] * len(geoms), "floor_count": [1] * len(geoms), "geometry": geoms},
+        crs="EPSG:4326",
+    )
+    (root / "data" / "raw").mkdir(parents=True, exist_ok=True)
+    b_gdf.to_parquet(root / "data" / "raw" / "buildings.parquet")
+
+    z_gdf = gpd.GeoDataFrame(
+        {"landuse": ["industrial", "industrial"], "geometry": [metric_poly(x0, y0, 300.0, 300.0), metric_poly(x1, y1, 300.0, 300.0)]},
+        crs="EPSG:4326",
+    )
+    z_gdf.to_parquet(root / "data" / "interim" / "osm_nonres_zones.parquet")
+
+    outputs = stage3.run_stage3(config_path, root, config_dir=REPO / "configs")
+    raw = pd.read_parquet(outputs["raw"])
+    assert raw.loc[cell_kampung, "residential_building_count"] == 12
+    assert bool(raw.loc[cell_kampung, "is_residential"]) is True
+    assert raw.loc[cell_factory, "residential_building_count"] == 0
+    assert bool(raw.loc[cell_factory, "is_residential"]) is False
+
+
+def test_build_sentinel2_skips_glcm_by_default_and_v2_locks_d4(region, monkeypatch):
+    from phys_living_index.data import gee_layers
+    from phys_living_index.features.build_features import benchmark_path, load_benchmarks
+
+    config_path, root, cells = region
+    v2 = load_benchmarks(benchmark_path("v2", REPO / "configs"))
+    assert v2.promoted_channels == ()
+    assert len(v2.with_active_channels(None).channels) == 4
+
+    def fake_reduce_tiered(builder, value_bands, tiers, target_cells, **kwargs):
+        idx = pd.Index(target_cells, name="h3_index")
+        return pd.DataFrame({
+            "ndvi": 0.25, "n_clear": 6.0, "valid_frac": 0.95, "median_doy": 200.0, "tier": 1,
+        }, index=idx), [{"tier": 1}]
+
+    def fail_if_glcm_called(*args, **kwargs):
+        raise AssertionError("GLCM reduction should not run when include_glcm is false")
+
+    monkeypatch.setattr(gee_layers, "sentinel2_index_collection", lambda *a, **kw: None)
+    monkeypatch.setattr(gee_layers, "reduce_tiered_composite", fake_reduce_tiered)
+    monkeypatch.setattr(gee_layers, "sentinel2_residential_glcm_image", fail_if_glcm_called)
+
+    run = stage3.RegionRun(stage3.load_region_config(config_path), root, cells, root / "data" / "interim" / "layers")
+    s2_df, prov = stage3.build_sentinel2(run)
+    assert prov["include_glcm"] is False
+    assert "s2_res_glcm_contrast" not in s2_df.columns
+    assert "ndvi" in s2_df.columns
+
+
+def test_build_landsat_forwards_min_lst_k_floor(region, monkeypatch):
+    from phys_living_index.data import gee_layers
+
+    config_path, root, cells = region
+    captured = {}
+
+    def fake_collection(bbox, ranges, max_st_uncertainty_k=3.0, min_lst_k=273.15):
+        captured["min_lst_k"] = min_lst_k
+        return None
+
+    def fake_reduce_tiered(builder, value_bands, tiers, target_cells, **kwargs):
+        builder(tiers[0])
+        idx = pd.Index(target_cells, name="h3_index")
+        return pd.DataFrame({
+            "lst": 310.0, "n_clear": 5.0, "valid_frac": 1.0, "median_doy": 210.0, "tier": 1,
+        }, index=idx), [{"tier": 1}]
+
+    monkeypatch.setattr(gee_layers, "landsat_lst_collection", fake_collection)
+    monkeypatch.setattr(gee_layers, "reduce_tiered_composite", fake_reduce_tiered)
+
+    run = stage3.RegionRun(stage3.load_region_config(config_path), root, cells, root / "data" / "interim" / "layers")
+    ls_df, prov = stage3.build_landsat(run)
+    assert captured["min_lst_k"] == pytest.approx(290.0)
+    assert prov["min_lst_k"] == pytest.approx(290.0)
+    assert "lst_k" in ls_df.columns

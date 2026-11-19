@@ -255,12 +255,15 @@ def landsat_lst_collection(
     bbox: Sequence[float],
     date_ranges: Sequence[DateRange],
     max_st_uncertainty_k: float = 3.0,
+    min_lst_k: float | None = 273.15,
 ) -> Any:
     """
     Per-observation Landsat 8/9 surface temperature (K) with QA_PIXEL and ST_QA masking.
 
     LST = ST_B10 × 0.00341802 + 149.0. Fill, dilated cloud, cirrus, cloud and shadow are
-    removed, as are pixels whose ST_QA uncertainty exceeds `max_st_uncertainty_k`.
+    removed, as are pixels whose ST_QA uncertainty exceeds `max_st_uncertainty_k` or whose
+    brightness-inverted surface temperature drops below `min_lst_k` (e.g. corrupt ~150 K
+    TIRS scan-line/fill artifacts or unmasked cloud tops).
     """
     import ee
 
@@ -277,8 +280,10 @@ def landsat_lst_collection(
     def to_lst(img: Any) -> Any:
         clear = img.select("QA_PIXEL").bitwiseAnd(LANDSAT_QA_REJECT_BITS).eq(0)
         certain = img.select("ST_QA").multiply(0.01).lte(max_st_uncertainty_k)
-        ok = clear.And(certain)
         lst = img.select("ST_B10").multiply(LANDSAT_ST_SCALE).add(LANDSAT_ST_OFFSET).rename("lst")
+        ok = clear.And(certain)
+        if min_lst_k is not None:
+            ok = ok.And(lst.gte(min_lst_k))
         return lst.updateMask(ok).addBands(_with_doy(img, ok)).copyProperties(img, ["system:time_start"])
 
     return _merge_date_ranges(build, date_ranges).map(to_lst)

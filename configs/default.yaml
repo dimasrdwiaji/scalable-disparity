@@ -37,7 +37,8 @@ compositing:
     cs_cdf_threshold: 0.60 # Cloud Score+ clear threshold
     min_clear: 5
     min_valid_frac: 0.80
-    scale_m: 10 # Native 10 m B8/B4 for NDVI and residential-masked GLCM roof texture
+    scale_m: 10 # Native 10 m B8/B4 for urban-masked NDVI
+    include_glcm: false # 10 m GLCM failed Mainland DKI 3-gate screen; opt-in only for diagnostics
     glcm_window_size: 3
     glcm_ndvi_max: 0.35
     tiers:
@@ -46,13 +47,14 @@ compositing:
       - [["2023-06-01", "2023-10-01"], ["2024-06-01", "2024-10-01"]]
   landsat:
     max_st_uncertainty_k: 3.0
+    min_lst_k: 290.0 # drop corrupt ~150 K TIRS frames and tropical cloud-top leaks
     min_clear: 3
     min_valid_frac: 0.70
     scale_m: 100
     tiers:
       - [["2023-06-01", "2023-10-01"]]
       - [["2022-06-01", "2022-10-01"], ["2023-06-01", "2023-10-01"], ["2024-06-01", "2024-10-01"]]
-      - [["2021-06-01", "2021-10-01"], ["2022-06-01", "2022-10-01"], ["2023-06-01", "2023-10-01"], ["2024-06-01", "2024-10-01"], ["2025-06-01", "2025-10-01"]]
+      - [["2021-05-01", "2021-11-01"], ["2022-05-01", "2022-11-01"], ["2023-05-01", "2023-11-01"], ["2024-05-01", "2024-11-01"], ["2025-05-01", "2025-11-01"]]
   water:
     date_range: ["2023-01-01", "2024-01-01"] # whole year: flood exposure peaks in the wet season
     min_observations: 10
@@ -104,6 +106,8 @@ buildings:
     local_outlier_min_m2: 500.0
     high_rise_exemption_floors: 6
     small_home_max_m2: 200.0
+    industrial_cluster_min_count: 10
+    industrial_small_home_max_m2: 100.0
 
 accessibility:
   osm_extract_url: "https://download.geofabrik.de/asia/indonesia/java-240101.osm.pbf"
