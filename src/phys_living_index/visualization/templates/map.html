@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Physical Living Index — Interactive Data &amp; Progress Map</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  :root {
+    --surface: rgba(255, 255, 255, 0.94);
+    --border: rgba(15, 23, 42, 0.14);
+    --text: #0f172a;
+    --muted: #475569;
+    --primary: #1e40af;
+    --radius: 12px;
+    --rail-w: 320px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #map { width: 100%; height: 100%; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: var(--text); }
+
+  .rail {
+    position: fixed; top: 12px; left: 12px; width: var(--rail-w);
+    display: flex; flex-direction: column; gap: 8px; z-index: 20;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  .rail.hidden { opacity: 0; pointer-events: none; transform: translateY(-8px); }
+
+  .card {
+    background: var(--surface); backdrop-filter: blur(12px);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12); overflow: hidden;
+  }
+  .card-trigger {
+    width: 100%; min-height: 44px; padding: 10px 14px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: transparent; border: 0; cursor: pointer; text-align: left; color: var(--text);
+  }
+  .card-trigger:hover { background: rgba(241, 245, 249, 0.85); }
+  .card-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+  .trig-text { display: flex; flex-direction: column; min-width: 0; }
+  .trig-kicker { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 700; }
+  .trig-val { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .chev { width: 16px; height: 16px; flex-shrink: 0; transition: transform 0.2s ease; color: var(--muted); }
+  .card.open .chev { transform: rotate(180deg); }
+  .card-body {
+    display: none; padding: 0 14px 12px; border-top: 1px solid rgba(15, 23, 42, 0.08);
+    max-height: 310px; overflow-y: auto;
+  }
+  .card.open .card-body { display: block; }
+
+  select {
+    width: 100%; margin-top: 10px; padding: 8px 10px; border-radius: 8px;
+    border: 1px solid #cbd5e1; font-size: 12.5px; font-weight: 600; background: #fff; color: var(--text); cursor: pointer;
+  }
+  .opacity-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .opacity-row input[type="range"] { flex: 1; accent-color: var(--primary); }
+
+  .layer-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    min-height: 36px; font-size: 12.5px; cursor: pointer;
+    border-bottom: 1px dashed rgba(148, 163, 184, 0.3);
+  }
+  .layer-row:last-of-type { border-bottom: 0; }
+  .layer-left { display: flex; align-items: center; gap: 8px; }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .loading-note { font-size: 11px; color: var(--primary); font-weight: 600; display: none; margin-top: 6px; }
+
+  .sec-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 700; margin-top: 9px; margin-bottom: 2px; }
+  .kv { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; font-size: 12px; border-bottom: 1px dashed rgba(148, 163, 184, 0.3); }
+  .kv:last-child { border-bottom: 0; }
+  .mono { font-family: ui-monospace, monospace; font-weight: 600; color: var(--text); }
+  .insp-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+  .btn-mini { font-size: 11px; padding: 4px 9px; border-radius: 6px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer; font-weight: 600; color: #334155; }
+  .btn-mini:hover { border-color: var(--primary); color: var(--primary); }
+
+  .top-right-tools { position: fixed; top: 12px; right: 12px; display: flex; gap: 8px; z-index: 25; }
+  .tool-btn {
+    min-height: 44px; min-width: 44px; padding: 0 12px; border-radius: 10px;
+    background: var(--surface); backdrop-filter: blur(12px);
+    border: 1px solid var(--border); box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
+    cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text);
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .tool-btn:hover { background: #fff; border-color: var(--primary); color: var(--primary); }
+  .tool-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+  .legend {
+    position: fixed; bottom: 24px; left: 12px; width: var(--rail-w); padding: 10px 14px; z-index: 20;
+    transition: opacity 0.2s ease;
+  }
+  .legend.hidden { opacity: 0; pointer-events: none; }
+  .bar { height: 8px; border-radius: 99px; margin: 6px 0 4px; }
+  .leg-lbls { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; }
+  .missing-note { margin-top: 5px; font-size: 10.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rail, .chev, .legend { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="top-right-tools">
+  <button class="tool-btn" id="fullViewBtn" aria-pressed="false" title="Toggle clean full-screen map view">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+    <span>Full Map View</span>
+  </button>
+  <button class="tool-btn" id="zoomInBtn" aria-label="Zoom in" title="Zoom in">+</button>
+  <button class="tool-btn" id="zoomOutBtn" aria-label="Zoom out" title="Zoom out">−</button>
+</div>
+
+<div class="rail" id="leftRail">
+  <div class="card" id="cardIndicator">
+    <button class="card-trigger" aria-expanded="false">
+      <div class="trig-text">
+        <span class="trig-kicker">Physical Indicator &amp; Region</span>
+        <span class="trig-val" id="indSummary">Small-Footprint (&lt;50 m²) • DKI Jakarta</span>
+      </div>
+      <svg class="chev" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+    </button>
+    <div class="card-body">
+      <select id="metricSelect" aria-label="Physical indicator">
+        <option value="res_share_lt50">Small-Footprint Housing Share (&lt;50 m²)</option>
+        <option value="res_share_lt60">Small-Footprint Sensitivity (&lt;60 m²)</option>
+        <option value="res_nn_p25">Building Spacing (25th-Pct Distance, m)</option>
+        <option value="ndvi">Vegetation Canopy Greenness (NDVI)</option>
+        <option value="dlst_local_ring_k5">Local Surface Heat Anomaly (2.6 km Ring, K)</option>
+        <option value="dlst_city_median">Citywide Surface Heat Anomaly (Sensitivity, K)</option>
+        <option value="lst_k">Land Surface Temperature (100 m Composite, K)</option>
+        <option value="ghs_res_share">GHSL Residential Built-Up Share (Audit)</option>
+        <option value="residential_building_count">Residential Building Count</option>
+      </select>
+      <select id="regionSelect" aria-label="Study sub-region">
+        <option value="dki">Region: Mainland DKI Jakarta</option>
+        <option value="penjaringan">Region: Penjaringan / North Coast</option>
+        <option value="karawang">Region: Karawang Regency</option>
+        <option value="bogor">Region: Bogor Highlands</option>
+        <option value="full">Region: Full Study Area</option>
+      </select>
+      <div class="opacity-row">
+        <span>Hex Opacity</span>
+        <input type="range" id="opacityRange" min="0.1" max="0.95" step="0.05" value="0.65" />
+        <span id="opacityVal" class="mono">0.65</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="cardLayers">
+    <button class="card-trigger" aria-expanded="false">
+      <div class="trig-text">
+        <span class="trig-kicker">Toggleable Layers</span>
+        <span class="trig-val" id="layerSummary">5 / 7 Layers Active</span>
+      </div>
+      <svg class="chev" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+    </button>
+    <div class="card-body">
+      <label class="layer-row"><span class="layer-left"><span class="swatch" style="background:#0f766e"></span>Urban-Masked H3 Cells (<span id="cntUrban">9,718</span>)</span><input type="checkbox" checked data-toggle="urban-hex" /></label>
+      <label class="layer-row"><span class="layer-left"><span class="swatch" style="background:#94a3b8"></span>Non-Urban H3 Cells (<span id="cntNonUrban">7,436</span>)</span><input type="checkbox" data-toggle="nonurban-hex" /></label>
+      <label class="layer-row"><span class="layer-left"><span class="swatch" style="background:#dc2626"></span>DKI Jakarta Slums (Pergub 90)</span><input type="checkbox" checked data-toggle="dki-slums" /></label>
+      <label class="layer-row"><span class="layer-left"><span class="swatch" style="background:#d97706"></span>Karawang Slum Pockets (Kotaku)</span><input type="checkbox" checked data-toggle="krw-slums" /></label>
+      <label class="layer-row"><span class="layer-left"><span class="swatch" style="background:#4f46e5"></span>Municipal &amp; Regency Boundaries</span><input type="checkbox" checked data-toggle="admin-bounds" /></label>
+      <label class="layer-row"><span class="layer-left"><span class="swatch" style="background:#475569"></span>OSM Non-Residential Zones (21,135)</span><input type="checkbox" data-toggle="osm-nonres" /></label>
+      <label class="layer-row"><span class="layer-left"><span class="swatch" style="background:#cbd5e1"></span>OpenStreetMap Basemap</span><input type="checkbox" checked data-toggle="osm-base" /></label>
+      <div class="loading-note" id="nonresLoading">Loading OSM non-residential polygons...</div>
+    </div>
+  </div>
+
+  <div class="card" id="cardInspector">
+    <button class="card-trigger" aria-expanded="false">
+      <div class="trig-text">
+        <span class="trig-kicker">Cell Inspector (Click Hex)</span>
+        <span class="trig-val" id="inspSummary">Click any hex cell on the map</span>
+      </div>
+      <svg class="chev" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+    </button>
+    <div class="card-body" id="inspBody">
+      <div style="font-size:12px;color:var(--muted);padding-top:10px">Click any H3 hex cell to inspect raw inputs, scaled values, QA tiers, and slum overlap.</div>
+    </div>
+  </div>
+</div>
+
+<div class="card legend" id="legendCard">
+  <div style="font-size:12px;font-weight:700" id="legendTitle">Small-Footprint Housing Share (&lt;50 m²)</div>
+  <div class="bar" id="legendBar"></div>
+  <div class="leg-lbls"><span id="legMin">0.15</span><span id="legMid">0.40</span><span id="legMax">0.75+</span></div>
+  <div class="missing-note"><span class="swatch" style="background:#cbd5e1;border:1px solid #94a3b8"></span> Missing / Incomplete Observation</div>
+</div>
+
+<script>
+const METRICS = {
+  res_share_lt50: {
+    label: 'Small-Footprint Housing Share (<50 m²)', short: 'Small-Footprint (<50 m²)',
+    stops: [[0.15, '#2166ac'], [0.30, '#67a9cf'], [0.40, '#f7f7f7'], [0.55, '#ef8a62'], [0.75, '#b2182b']],
+    labels: ['0.15', '0.40', '0.75+']
+  },
+  res_share_lt60: {
+    label: 'Small-Footprint Sensitivity (<60 m²)', short: 'Small-Footprint (<60 m²)',
+    stops: [[0.20, '#2166ac'], [0.35, '#67a9cf'], [0.48, '#f7f7f7'], [0.65, '#ef8a62'], [0.85, '#b2182b']],
+    labels: ['0.20', '0.48', '0.85+']
+  },
+  res_nn_p25: {
+    label: 'Building Spacing (25th-Pct Distance)', short: 'Building Spacing P25',
+    stops: [[5.0, '#b2182b'], [6.8, '#ef8a62'], [8.0, '#f7f7f7'], [9.5, '#67a9cf'], [13.0, '#2166ac']],
+    labels: ['5.0 m (Tight)', '8.0 m', '13.0+ m']
+  },
+  ndvi: {
+    label: 'Vegetation Canopy Greenness (NDVI)', short: 'Canopy Greenness (NDVI)',
+    stops: [[0.05, '#a6611a'], [0.20, '#dfc27d'], [0.38, '#f5f5f5'], [0.55, '#80cdc1'], [0.72, '#018571']],
+    labels: ['0.05 (Bare)', '0.38', '0.72+ (Dense)']
+  },
+  dlst_local_ring_k5: {
+    label: 'Local Surface Heat Anomaly (2.6 km Ring)', short: 'Local Heat Anomaly (2.6 km)',
+    stops: [[-3.5, '#2166ac'], [-1.2, '#67a9cf'], [0.0, '#f7f7f7'], [1.5, '#ef8a62'], [4.0, '#b2182b']],
+    labels: ['-3.5 K (Cool)', '0.0 K', '+4.0+ K (Hot)']
+  },
+  dlst_city_median: {
+    label: 'Citywide Surface Heat Anomaly (Sensitivity)', short: 'Citywide Heat Anomaly',
+    stops: [[-6.0, '#2166ac'], [-2.0, '#67a9cf'], [0.0, '#f7f7f7'], [3.5, '#ef8a62'], [7.0, '#b2182b']],
+    labels: ['-6.0 K', '0.0 K', '+7.0+ K']
+  },
+  lst_k: {
+    label: 'Land Surface Temperature (100 m Composite)', short: 'Land Surface Temp (K)',
+    stops: [[302, '#2166ac'], [307, '#67a9cf'], [311, '#f7f7f7'], [315, '#ef8a62'], [320, '#b2182b']],
+    labels: ['302 K', '311 K', '320+ K']
+  },
+  ghs_res_share: {
+    label: 'GHSL Residential Built-Up Share (Audit)', short: 'GHSL Residential Share',
+    stops: [[0.30, '#b2182b'], [0.70, '#ef8a62'], [0.90, '#f7f7f7'], [0.97, '#67a9cf'], [1.0, '#2166ac']],
+    labels: ['0.30 (Ind./Mixed)', '0.90', '1.00 (Res.)']
+  },
+  residential_building_count: {
+    label: 'Residential Building Count', short: 'Residential Buildings',
+    stops: [[50, '#f1eef6'], [400, '#bdc9e1'], [1000, '#74a9cf'], [2000, '#2b8cbe'], [3500, '#045a8d']],
+    labels: ['50', '1,000', '3,500+']
+  }
+};
+
+const REGIONS = {
+  full: { label: 'Full Study Area', center: [106.95, -6.34], zoom: 9.6 },
+  dki: { label: 'DKI Jakarta', center: [106.845, -6.20], zoom: 11.4 },
+  penjaringan: { label: 'Penjaringan', center: [106.79, -6.12], zoom: 12.6 },
+  karawang: { label: 'Karawang', center: [107.33, -6.31], zoom: 11.2 },
+  bogor: { label: 'Bogor', center: [106.82, -6.62], zoom: 11.2 }
+};
+
+let currentMetric = 'res_share_lt50';
+let currentRegion = 'dki';
+let nonresLoaded = false;
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      osm: {
+        type: 'raster',
+        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        attribution: '&copy; OpenStreetMap contributors'
+      }
+    },
+    layers: [{ id: 'osm-base', type: 'raster', source: 'osm' }]
+  },
+  center: REGIONS.dki.center,
+  zoom: REGIONS.dki.zoom
+});
+
+document.querySelectorAll('.card-trigger').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const card = btn.closest('.card');
+    const isOpen = card.classList.toggle('open');
+    btn.setAttribute('aria-expanded', String(isOpen));
+  });
+});
+
+document.getElementById('fullViewBtn').addEventListener('click', function () {
+  const hidden = document.getElementById('leftRail').classList.toggle('hidden');
+  document.getElementById('legendCard').classList.toggle('hidden', hidden);
+  this.setAttribute('aria-pressed', String(hidden));
+  this.querySelector('span').textContent = hidden ? 'Show Panels' : 'Full Map View';
+});
+
+document.getElementById('zoomInBtn').addEventListener('click', () => map.zoomIn());
+document.getElementById('zoomOutBtn').addEventListener('click', () => map.zoomOut());
+
+function updateIndicatorSummary() {
+  document.getElementById('indSummary').textContent = `${METRICS[currentMetric].short} • ${REGIONS[currentRegion].label}`;
+}
+
+function updateLayerSummary() {
+  const all = document.querySelectorAll('input[data-toggle]');
+  const active = Array.from(all).filter(c => c.checked).length;
+  document.getElementById('layerSummary').textContent = `${active} / ${all.length} Layers Active`;
+}
+
+function buildFillPaint(metricKey) {
+  const cfg = METRICS[metricKey];
+  const expr = ['interpolate', ['linear'], ['get', metricKey]];
+  cfg.stops.forEach(([v, col]) => { expr.push(v, col); });
+  return ['case', ['==', ['get', metricKey], null], '#cbd5e1', expr];
+}
+
+function updateLegend(metricKey) {
+  const cfg = METRICS[metricKey];
+  document.getElementById('legendTitle').textContent = cfg.label;
+  document.getElementById('legMin').textContent = cfg.labels[0];
+  document.getElementById('legMid').textContent = cfg.labels[1];
+  document.getElementById('legMax').textContent = cfg.labels[2];
+  document.getElementById('legendBar').style.background = `linear-gradient(90deg, ${cfg.stops.map(s => s[1]).join(', ')})`;
+}
+
+function fmt(v, suffix = '', digits = 3) {
+  if (v === null || v === undefined || Number.isNaN(v)) return '—';
+  return typeof v === 'number' ? `${v.toFixed(digits)}${suffix}` : String(v);
+}
+
+function clearSelection() {
+  if (map.getLayer('hex-selected-outline')) {
+    map.setFilter('hex-selected-outline', ['==', ['get', 'h3_index'], '']);
+  }
+  document.getElementById('inspSummary').textContent = 'Click any hex cell on the map';
+  document.getElementById('inspBody').innerHTML = '<div style="font-size:12px;color:var(--muted);padding-top:10px">Click any H3 hex cell to inspect raw inputs, scaled values, QA tiers, and slum overlap.</div>';
+}
+
+function renderInspector(props) {
+  const maskText = props.is_residential ? 'Urban-Masked' : 'Non-Urban / Excluded';
+  const modelText = props.is_modelled ? 'Complete 4D' : 'Incomplete';
+  const dkiText = props.dki_slum_status
+    ? `${props.dki_slum_status}${props.dki_severity ? ' (' + props.dki_severity + ')' : ''}`
+    : 'Outside Mainland DKI';
+  const dkiLoc = props.dki_kelurahan ? `${props.dki_kelurahan} RW ${props.dki_rw || ''}` : '—';
+
+  document.getElementById('inspSummary').textContent = `H3 ${props.h3_index} • ${props.dki_severity || maskText}`;
+  document.getElementById('inspBody').innerHTML = `
+    <div class="sec-tag">Mask &amp; Model Status</div>
+    <div class="kv"><span>Grid Status</span><span class="mono">${maskText} • ${modelText}</span></div>
+    <div class="kv"><span>GHSL Settlement Class</span><span class="mono">${props.smod_code ?? '—'}</span></div>
+    <div class="sec-tag">Built Form</div>
+    <div class="kv"><span>Small-Footprint (&lt;50 m²)</span><span class="mono">${fmt(props.res_share_lt50)}</span></div>
+    <div class="kv"><span>Small-Footprint (&lt;60 m²)</span><span class="mono">${fmt(props.res_share_lt60)}</span></div>
+    <div class="kv"><span>Building Spacing P25</span><span class="mono">${fmt(props.res_nn_p25, ' m', 2)}</span></div>
+    <div class="kv"><span>Residential Buildings</span><span class="mono">${props.residential_building_count ?? '—'} / ${props.building_count ?? '—'}</span></div>
+    <div class="kv"><span>GHSL Residential Share</span><span class="mono">${fmt(props.ghs_res_share)}</span></div>
+    <div class="sec-tag">Micro-Environment &amp; QA Tiers</div>
+    <div class="kv"><span>Canopy Greenness (NDVI)</span><span class="mono">${fmt(props.ndvi)} (T${props.s2_tier ?? '?'})</span></div>
+    <div class="kv"><span>Local Heat Anomaly (2.6 km)</span><span class="mono">${props.dlst_local_ring_k5 > 0 ? '+' : ''}${fmt(props.dlst_local_ring_k5, ' K', 2)}</span></div>
+    <div class="kv"><span>Land Surface Temp</span><span class="mono">${fmt(props.lst_k, ' K', 2)} (T${props.lst_tier ?? '?'})</span></div>
+    <div class="sec-tag">Validation Overlays</div>
+    <div class="kv"><span>DKI Pergub 90</span><span class="mono">${dkiText}</span></div>
+    <div class="kv"><span>Kelurahan / RW</span><span class="mono">${dkiLoc}</span></div>
+    <div class="kv"><span>Karawang Kotaku</span><span class="mono">${props.karawang_slum_status || 'Outside Karawang'}</span></div>
+    <div class="insp-actions"><button class="btn-mini" id="clearCellBtn">Clear Selection</button></div>
+  `;
+  document.getElementById('clearCellBtn').addEventListener('click', clearSelection);
+
+  const inspCard = document.getElementById('cardInspector');
+  inspCard.classList.add('open');
+  inspCard.querySelector('.card-trigger').setAttribute('aria-expanded', 'true');
+}
+
+async function initLayers() {
+  const summary = await fetch('/data/summary.json').then(r => r.json());
+  document.getElementById('cntUrban').textContent = summary.urban_cells.toLocaleString();
+  document.getElementById('cntNonUrban').textContent = summary.non_urban_cells.toLocaleString();
+
+  map.addSource('hexagons', { type: 'geojson', data: '/data/hexagons.geojson', generateId: true });
+  map.addLayer({
+    id: 'urban-hex-fill', type: 'fill', source: 'hexagons',
+    filter: ['==', ['get', 'is_residential'], true],
+    paint: { 'fill-color': buildFillPaint(currentMetric), 'fill-opacity': 0.65 }
+  });
+  map.addLayer({
+    id: 'urban-hex-line', type: 'line', source: 'hexagons',
+    filter: ['==', ['get', 'is_residential'], true],
+    paint: { 'line-color': '#0f172a', 'line-width': 0.45, 'line-opacity': 0.3 }
+  });
+  map.addLayer({
+    id: 'nonurban-hex-fill', type: 'fill', source: 'hexagons',
+    filter: ['!=', ['get', 'is_residential'], true],
+    layout: { visibility: 'none' },
+    paint: { 'fill-color': '#94a3b8', 'fill-opacity': 0.3 }
+  });
+  map.addLayer({
+    id: 'nonurban-hex-line', type: 'line', source: 'hexagons',
+    filter: ['!=', ['get', 'is_residential'], true],
+    layout: { visibility: 'none' },
+    paint: { 'line-color': '#64748b', 'line-width': 0.35, 'line-opacity': 0.35 }
+  });
+  map.addLayer({
+    id: 'hex-selected-outline', type: 'line', source: 'hexagons',
+    filter: ['==', ['get', 'h3_index'], ''],
+    paint: { 'line-color': '#0f172a', 'line-width': 2.8 }
+  });
+
+  if (summary.available_layers.includes('admin_boundaries.geojson')) {
+    map.addSource('admin-bounds', { type: 'geojson', data: '/data/admin_boundaries.geojson' });
+    map.addLayer({
+      id: 'admin-bounds-line', type: 'line', source: 'admin-bounds',
+      paint: { 'line-color': '#4f46e5', 'line-width': 1.6, 'line-dasharray': [4, 2] }
+    });
+  }
+  if (summary.available_layers.includes('dki_slums.geojson')) {
+    map.addSource('dki-slums', { type: 'geojson', data: '/data/dki_slums.geojson' });
+    map.addLayer({
+      id: 'dki-slums-fill', type: 'fill', source: 'dki-slums',
+      paint: { 'fill-color': '#dc2626', 'fill-opacity': 0.16 }
+    });
+    map.addLayer({
+      id: 'dki-slums-line', type: 'line', source: 'dki-slums',
+      paint: { 'line-color': '#dc2626', 'line-width': 1.4 }
+    });
+  }
+  if (summary.available_layers.includes('karawang_slums.geojson')) {
+    map.addSource('krw-slums', { type: 'geojson', data: '/data/karawang_slums.geojson' });
+    map.addLayer({
+      id: 'krw-slums-fill', type: 'fill', source: 'krw-slums',
+      paint: { 'fill-color': '#d97706', 'fill-opacity': 0.22 }
+    });
+    map.addLayer({
+      id: 'krw-slums-line', type: 'line', source: 'krw-slums',
+      paint: { 'line-color': '#d97706', 'line-width': 1.5 }
+    });
+  }
+}
+
+map.on('load', () => {
+  initLayers();
+  updateLegend(currentMetric);
+  updateIndicatorSummary();
+  updateLayerSummary();
+
+  // Click-only inspection (no mousemove queryRenderedFeatures -> zero cursor lag)
+  const clickLayers = ['urban-hex-fill', 'nonurban-hex-fill'];
+  map.on('click', (e) => {
+    const activeLayers = clickLayers.filter(l => map.getLayer(l) && map.getLayoutProperty(l, 'visibility') !== 'none');
+    const features = activeLayers.length ? map.queryRenderedFeatures(e.point, { layers: activeLayers }) : [];
+    if (features.length > 0) {
+      const props = features[0].properties;
+      map.setFilter('hex-selected-outline', ['==', ['get', 'h3_index'], props.h3_index]);
+      renderInspector(props);
+    }
+  });
+});
+
+document.getElementById('metricSelect').addEventListener('change', (e) => {
+  currentMetric = e.target.value;
+  if (map.getLayer('urban-hex-fill')) {
+    map.setPaintProperty('urban-hex-fill', 'fill-color', buildFillPaint(currentMetric));
+  }
+  updateLegend(currentMetric);
+  updateIndicatorSummary();
+});
+
+document.getElementById('regionSelect').addEventListener('change', (e) => {
+  currentRegion = e.target.value;
+  const target = REGIONS[currentRegion];
+  if (target) map.flyTo({ center: target.center, zoom: target.zoom, duration: 850 });
+  updateIndicatorSummary();
+});
+
+document.getElementById('opacityRange').addEventListener('input', (e) => {
+  const val = parseFloat(e.target.value);
+  document.getElementById('opacityVal').textContent = val.toFixed(2);
+  if (map.getLayer('urban-hex-fill')) map.setPaintProperty('urban-hex-fill', 'fill-opacity', val);
+});
+
+const LAYER_GROUPS = {
+  'urban-hex': ['urban-hex-fill', 'urban-hex-line'],
+  'nonurban-hex': ['nonurban-hex-fill', 'nonurban-hex-line'],
+  'dki-slums': ['dki-slums-fill', 'dki-slums-line'],
+  'krw-slums': ['krw-slums-fill', 'krw-slums-line'],
+  'admin-bounds': ['admin-bounds-line'],
+  'osm-base': ['osm-base']
+};
+
+document.querySelectorAll('input[data-toggle]').forEach((cb) => {
+  cb.addEventListener('change', async () => {
+    updateLayerSummary();
+    const key = cb.dataset.toggle;
+    const vis = cb.checked ? 'visible' : 'none';
+    if (key === 'osm-nonres') {
+      if (cb.checked && !nonresLoaded) {
+        const note = document.getElementById('nonresLoading');
+        note.style.display = 'block';
+        try {
+          map.addSource('osm-nonres', { type: 'geojson', data: '/data/osm_nonres_zones.geojson' });
+          map.addLayer({
+            id: 'osm-nonres-fill', type: 'fill', source: 'osm-nonres',
+            paint: { 'fill-color': '#475569', 'fill-opacity': 0.35 }
+          }, 'urban-hex-fill');
+          nonresLoaded = true;
+        } finally {
+          note.style.display = 'none';
+        }
+      } else if (map.getLayer('osm-nonres-fill')) {
+        map.setLayoutProperty('osm-nonres-fill', 'visibility', vis);
+      }
+      return;
+    }
+    (LAYER_GROUPS[key] || []).forEach((layerId) => {
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', vis);
+    });
+  });
+});
+</script>
+</body>
+</html>
